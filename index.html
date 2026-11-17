@@ -53,7 +53,11 @@ h2{font-family:var(--display);font-weight:700;font-size:15px;letter-spacing:.14e
 .today .label{font-family:var(--display);font-weight:700;font-size:14px;letter-spacing:.16em;text-transform:uppercase;color:var(--sun)}
 .today.done .label{color:var(--sage)}
 .today h1{font-family:var(--display);font-weight:900;font-size:32px;line-height:1.08;margin:0;text-wrap:balance}
-.today p{margin:0;color:var(--dust);font-size:15px}
+.today p{margin:0;color:var(--dust);font-size:15px;white-space:pre-line;overflow-wrap:anywhere}
+form.logf{display:flex;gap:8px;align-items:stretch}
+form.logf input{flex:1;min-width:0;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:10px 12px;min-height:44px}
+.today form.logf input{background:#0f0e0c}
+.loghint{font-size:12px;color:var(--dust)}
 .meta{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
 .chip{font-size:12px;border:1px solid var(--line);border-radius:999px;padding:2px 9px;color:var(--dust);white-space:nowrap}
 a.chip.tag{text-decoration:none;color:var(--bone);border-color:#4a443b}
@@ -107,7 +111,7 @@ details.e summary .ti{font-size:15px}
 details.e summary .ti small{display:block;color:var(--dust);font-size:12px;margin-top:3px}
 details.e.dim summary .ti{color:var(--dust)}
 details.e .body{padding:0 0 14px;display:flex;flex-direction:column;gap:12px}
-details.e .notes{font-size:14px;color:var(--dust);overflow-wrap:anywhere}
+details.e .notes{font-size:14px;color:var(--dust);overflow-wrap:anywhere;white-space:pre-line}
 .inline{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .count{color:var(--dust);font-size:13px;margin:0 0 6px}
 
@@ -173,6 +177,9 @@ function disp(d){return (d.getMonth()+1)+"/"+d.getDate()+"/"+String(d.getFullYea
 function store(k,v){try{if(v===undefined){var x=localStorage.getItem(k);return x?JSON.parse(x):null}localStorage.setItem(k,JSON.stringify(v))}catch(e){return null}}
 function skipKey(){return "bf-skip-"+iso(now())}
 function skipped(){return store(skipKey())||[]}
+function progKey(){return "bf-prog-"+iso(now())}
+function progressed(){return store(progKey())||[]}
+function logStamp(d){return (d.getMonth()+1)+"."+pad(d.getDate())}
 
 function toast(msg,err){var t=$("toast");t.innerHTML='<div class="toast'+(err?" err":"")+'">'+esc(msg)+"</div>";clearTimeout(toast.t);toast.t=setTimeout(function(){t.innerHTML=""},err?6000:2600)}
 
@@ -254,6 +261,7 @@ function applyLocal(op){
     return;
   }
   var e=find(op.id);if(!e) return;
+  if(op.kind==="log"){e.notes=e.notes?e.notes+"\n"+op.line:op.line;return}
   if(op.kind==="status"){e.status=op.status;if(op.closed!==null)e.closed=op.closed?disp(fromIso(op.closed)):""}
   if(op.kind==="deadline"){e.deadline=op.value?dlText(op.value):"";e.days=op.value?daysFrom(op.value):null}
 }
@@ -268,6 +276,12 @@ async function sendOp(op,ctx){
   }
   var id2=ctx.tmp[op.id]||op.id,r=ctx.rows[id2];
   if(!r) throw {code:"gone",message:id2+" is no longer in the tracker."};
+  if(op.kind==="log"){
+    if(!(id2 in ctx.notes)){var cur=ctx.list.filter(function(x){return x.id===id2})[0];ctx.notes[id2]=cur?cur.notes:""}
+    var nn=ctx.notes[id2]?ctx.notes[id2]+"\n"+op.line:op.line;
+    if(/^[=+\-@]/.test(nn))nn="'"+nn;
+    await put("Entries!I"+r,[[nn]]);ctx.notes[id2]=nn;return;
+  }
   if(op.kind==="status") await put("Entries!G"+r+":L"+r,[[op.status,null,null,null,null,op.closed]]);
   else if(op.kind==="deadline") await put("Entries!F"+r,[[op.value||""]]);
 }
@@ -282,7 +296,7 @@ async function sync(interactive){
   try{
     var rows=await fetchRows(),q=queue();
     if(q.length){
-      var list=parse(rows),ctx={list:list,rows:{},tmp:{},maxN:0,maxRow:1};
+      var list=parse(rows),ctx={list:list,rows:{},tmp:{},notes:{},maxN:0,maxRow:1};
       list.forEach(function(e){ctx.rows[e.id]=e.row;var m=/^E-(\d+)$/.exec(e.id);if(m)ctx.maxN=Math.max(ctx.maxN,+m[1]);ctx.maxRow=Math.max(ctx.maxRow,e.row)});
       while(q.length){
         try{await sendOp(q[0],ctx)}catch(e){if(e.code==="auth"||e.code==="offline")throw e;lost++;S.problem=e.code==="gone"?{t:"One change could not be saved.",d:e.message}:explain(e)}
@@ -312,6 +326,16 @@ function setStatus(e,status){
   else if(e.status==="Done"||e.status==="Dropped") closed="";
   return act(e.title.slice(0,40)+(e.title.length>40?"...":"")+": "+status.toLowerCase(),{kind:"status",id:e.id,status:status,closed:closed});
 }
+function logProgress(e,text,fromToday){
+  var line=logStamp(now())+" - "+text.trim();
+  if(fromToday){var pr=progressed();if(pr.indexOf(e.id)<0)pr.push(e.id);store(progKey(),pr);S.extra=false}
+  return act("Progress logged",{kind:"log",id:e.id,line:line});
+}
+function logForm(id,place){
+  return '<form class="logf" data-id="'+esc(id)+'" data-place="'+place+'"><label class="sr" for="log-'+place+'-'+esc(id)+'" style="position:absolute;left:-9999px">Progress note</label>'+
+    '<input type="text" id="log-'+place+'-'+esc(id)+'" placeholder="Sent inquiry to..." autocomplete="off" enterkeyhint="send">'+
+    '<button class="btn small" type="submit">Log</button></form>';
+}
 function setDeadline(e,val){return act(val?"Deadline saved":"Deadline cleared",{kind:"deadline",id:e.id,value:val||""})}
 function addEntry(f){var t=Date.now();return act("Added",{kind:"add",f:f,tmp:"new-"+t,n:t%100000,at:t})}
 
@@ -335,10 +359,17 @@ function viewToday(){
   var shows=S.entries.filter(function(e){return e.type==="Event"&&e.status==="Open"&&e.days!=null&&e.days>=0}).sort(byUrgency);
   if(shows[0]){var s=shows[0];h+='<div class="nextshow"><b>'+(s.days===0?"TONIGHT":s.days+(s.days===1?" DAY":" DAYS"))+'</b><span>'+esc(s.title)+'</span>'+esc(s.deadline)+'</div>'}
 
-  var done=doneToday(),c=candidates(),sk=skipped();
-  var pick=null;for(var i=0;i<c.length;i++){if(sk.indexOf(c[i].id)<0){pick=c[i];break}}
+  var done=doneToday(),c=candidates(),sk=skipped(),pr=progressed();
+  var pick=null;for(var i=0;i<c.length;i++){if(sk.indexOf(c[i].id)<0&&pr.indexOf(c[i].id)<0){pick=c[i];break}}
+  var lastProg=null;for(var j=pr.length-1;j>=0;j--){var pe=find(pr[j]);if(pe&&pe.status==="Open"){lastProg=pe;break}}
   h+="<section>";
-  if(done.length&&!S.extra){
+  if(lastProg&&!S.extra){
+    var lines=String(lastProg.notes||"").split("\n"),last=lines[lines.length-1];
+    h+='<div class="today done"><div class="label">Progress logged</div><h1>'+esc(lastProg.title)+'</h1>'+
+       '<p>'+linkify(last)+'\nThat counts as today\'s one thing.</p>'+
+       '<div class="btns"><button class="btn good" data-act="done" data-id="'+esc(lastProg.id)+'" type="button">Actually, it\'s done</button>'+
+       '<button class="btn" data-act="extra" type="button">Give me another</button></div></div>';
+  }else if(done.length&&!S.extra){
     h+='<div class="today done"><div class="label">Done for today</div><h1>'+esc(done[done.length-1].title)+'</h1>'+
        '<p>'+(done.length>1?done.length+" entries closed today. ":"")+'That is the one thing. The rest can wait until tomorrow.</p>'+
        '<div class="btns"><button class="btn" data-act="extra" type="button">Give me another</button></div></div>';
@@ -349,7 +380,9 @@ function viewToday(){
        pick.tags.map(tagLink).join("")+'</div>'+
        (pick.notes?'<p>'+linkify(pick.notes)+'</p>':'')+
        '<div class="btns"><button class="btn primary" data-act="done" data-id="'+esc(pick.id)+'" type="button">Done</button>'+
-       '<button class="btn" data-act="skip" data-id="'+esc(pick.id)+'" type="button">Not today</button></div></div>';
+       '<button class="btn" data-act="logopen" type="button" aria-expanded="'+(!!S.logOpen)+'">Log progress</button>'+
+       '<button class="btn" data-act="skip" data-id="'+esc(pick.id)+'" type="button">Not today</button></div>'+
+       (S.logOpen?logForm(pick.id,"today")+'<div class="loghint">Saved to the entry\'s notes as '+esc(logStamp(now()))+' - your note. The task stays open.</div>':'')+'</div>';
   }else if(S.entries.length){
     h+='<div class="today done"><div class="label">Nothing to pick</div><h1>No open tasks of yours'+(sk.length?" left for today":"")+'</h1>'+
        (sk.length?'<div class="btns"><button class="btn" data-act="unskip" type="button">Bring back the '+sk.length+' set aside</button></div>':'<p>Add something, or move an entry out of the backlog in All.</p>')+'</div>';
@@ -382,9 +415,9 @@ function entryRow(e){
     var dl="";
     if(!closed){var d=e.days==null?"":iso(new Date(now().getFullYear(),now().getMonth(),now().getDate()+e.days));
       dl='<div class="inline"><label class="foot" for="dl-'+e.id+'">Deadline</label><input type="date" id="dl-'+e.id+'" value="'+d+'" style="background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:6px 8px"><button class="btn small" data-act="deadline" data-id="'+e.id+'" type="button">Save date</button></div>'}
-    return '<details class="e'+(closed||e.status==="Backlog"?" dim":"")+'"><summary><span class="ti">'+esc(e.title)+'<small>'+esc([e.id,e.type,e.owner].join(" · "))+'</small>'+(e.tags.length?'<span class="tags">'+e.tags.map(tagLink).join("")+'</span>':'')+'</span>'+
+    return '<details class="e'+(closed||e.status==="Backlog"?" dim":"")+'"'+(S.openRow===e.id?" open":"")+'><summary><span class="ti">'+esc(e.title)+'<small>'+esc([e.id,e.type,e.owner].join(" · "))+'</small>'+(e.tags.length?'<span class="tags">'+e.tags.map(tagLink).join("")+'</span>':'')+'</span>'+
        '<span class="chip '+(closed?"":w.cls)+'">'+esc(closed?e.status+(e.closed?" "+e.closed:""):(e.days==null?e.status:w.txt))+'</span></summary>'+
-       '<div class="body">'+(e.notes?'<div class="notes">'+linkify(e.notes)+'</div>':'')+dl+'<div class="btns">'+b+'</div></div></details>';
+       '<div class="body">'+(e.notes?'<div class="notes">'+linkify(e.notes)+'</div>':'')+(closed?'':logForm(e.id,"row"))+dl+'<div class="btns">'+b+'</div></div></details>';
   }
 
 function tagStats(){
@@ -501,6 +534,7 @@ document.addEventListener("click",function(ev){
   else if(a==="deadline"&&e){setDeadline(e,$("dl-"+id).value)}
   else if(a==="skip"){var s=skipped();if(s.indexOf(id)<0)s.push(id);store(skipKey(),s);render()}
   else if(a==="unskip"){store(skipKey(),[]);render()}
+  else if(a==="logopen"){S.logOpen=!S.logOpen;render();if(S.logOpen){var inp=document.querySelector('form.logf[data-place="today"] input');if(inp)inp.focus()}}
   else if(a==="extra"){S.extra=true;render()}
   else if(a==="fstatus"){S.filter.status=v;render()}
   else if(a==="fstat"){keepForm();S.form.status=v;render()}
@@ -511,6 +545,15 @@ document.addEventListener("change",function(ev){
   if(ev.target.id==="ftag"){S.filter.tag=ev.target.value;render()}
 });
 document.addEventListener("submit",function(ev){
+  if(ev.target.classList&&ev.target.classList.contains("logf")){
+    ev.preventDefault();
+    var fe=find(ev.target.getAttribute("data-id")),inp=ev.target.querySelector("input"),txt=inp?inp.value:"";
+    if(!fe||!txt.trim())return;
+    var place=ev.target.getAttribute("data-place");
+    if(place==="row")S.openRow=fe.id;
+    S.logOpen=false;logProgress(fe,txt,place==="today");
+    return;
+  }
   if(ev.target.id!=="addform") return;
   ev.preventDefault();keepForm();
   if(!S.form.what.trim()) return;
