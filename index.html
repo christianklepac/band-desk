@@ -56,6 +56,19 @@ h2{font-family:var(--display);font-weight:700;font-size:15px;letter-spacing:.14e
 .today p{margin:0;color:var(--dust);font-size:15px}
 .meta{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
 .chip{font-size:12px;border:1px solid var(--line);border-radius:999px;padding:2px 9px;color:var(--dust);white-space:nowrap}
+a.chip.tag{text-decoration:none;color:var(--bone);border-color:#4a443b}
+a.chip.tag:hover{border-color:var(--sun);color:var(--sun)}
+.tagrow{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:baseline;padding:13px 0;border-top:1px solid var(--line);text-decoration:none;color:var(--bone)}
+.tagrow:last-of-type{border-bottom:1px solid var(--line)}
+.tagrow .n{font-family:var(--display);font-weight:700;font-size:21px;letter-spacing:.03em}
+.tagrow .n small{display:block;font-family:var(--body);font-weight:400;font-size:13px;letter-spacing:0;color:var(--dust);margin-top:2px}
+.tagrow.quiet .n{color:var(--dust)}
+.taghead{display:flex;flex-direction:column;gap:8px;margin-bottom:18px}
+.taghead h1{font-family:var(--display);font-weight:900;font-size:34px;line-height:1.05;margin:0;overflow-wrap:anywhere}
+.taghead a.back{font-size:13px;color:var(--dust);text-decoration:none}
+.taghead p{margin:0;color:var(--dust);font-size:14px}
+.group{margin-top:18px}
+details.e summary .ti .tags{display:flex;flex-wrap:wrap;gap:5px;margin-top:6px}
 .chip.when{color:var(--bone);border-color:var(--dust)}
 .chip.soon{color:var(--sun);border-color:var(--sun)}
 .chip.late{color:var(--rust);border-color:var(--rust)}
@@ -110,7 +123,7 @@ form.add{display:flex;flex-direction:column;gap:16px}
 
 nav.tabs{position:fixed;left:0;right:0;bottom:0;background:rgba(12,11,10,.94);border-top:1px solid var(--line);display:flex;justify-content:center}
 nav.tabs div{display:flex;width:100%;max-width:560px}
-nav.tabs a{flex:1;text-align:center;padding:14px 8px 16px;text-decoration:none;color:var(--dust);font-family:var(--display);font-weight:700;letter-spacing:.14em;text-transform:uppercase;font-size:15px;border-top:2px solid transparent;margin-top:-1px}
+nav.tabs a{flex:1;text-align:center;padding:14px 8px 16px;text-decoration:none;color:var(--dust);font-family:var(--display);font-weight:700;letter-spacing:.12em;text-transform:uppercase;font-size:15px;border-top:2px solid transparent;margin-top:-1px}
 nav.tabs a[aria-current="page"]{color:var(--bone);border-top-color:var(--sun)}
 
 .toast{position:fixed;left:50%;bottom:76px;transform:translateX(-50%);background:var(--bone);color:#141210;border-radius:10px;padding:10px 16px;font-size:14px;font-weight:600;max-width:calc(100% - 32px);box-shadow:0 6px 24px rgba(0,0,0,.5)}
@@ -132,6 +145,7 @@ nav.tabs a[aria-current="page"]{color:var(--bone);border-top-color:var(--sun)}
 <nav class="tabs" aria-label="Views"><div>
   <a href="#today" data-tab="today">Today</a>
   <a href="#all" data-tab="all">All</a>
+  <a href="#tags" data-tab="tags">Tags</a>
   <a href="#add" data-tab="add">Add</a>
 </div></nav>
 <div id="toast" role="status" aria-live="polite"></div>
@@ -332,7 +346,7 @@ function viewToday(){
     var w=when(pick);
     h+='<div class="today"><div class="label">'+(done.length?"One more":"Today's one thing")+'</div><h1>'+esc(pick.title)+'</h1>'+
        '<div class="meta"><span class="chip when '+w.cls+'">'+esc(w.txt)+'</span><span class="chip">'+esc(pick.id)+'</span>'+
-       pick.tags.map(function(t){return '<span class="chip">'+esc(t)+'</span>'}).join("")+'</div>'+
+       pick.tags.map(tagLink).join("")+'</div>'+
        (pick.notes?'<p>'+linkify(pick.notes)+'</p>':'')+
        '<div class="btns"><button class="btn primary" data-act="done" data-id="'+esc(pick.id)+'" type="button">Done</button>'+
        '<button class="btn" data-act="skip" data-id="'+esc(pick.id)+'" type="button">Not today</button></div></div>';
@@ -358,6 +372,65 @@ function viewToday(){
   return h;
 }
 
+function tagLink(t){return '<a class="chip tag" href="#tag-'+encodeURIComponent(t)+'">'+esc(t)+'</a>'}
+function entryRow(e){
+    var w=when(e),closed=e.status==="Done"||e.status==="Dropped",b="";
+    if(e.status==="Open") b='<button class="btn small good" data-act="done" data-id="'+e.id+'" type="button">Done</button><button class="btn small" data-act="status" data-v="Backlog" data-id="'+e.id+'" type="button">Later</button><button class="btn small" data-act="status" data-v="Waiting" data-id="'+e.id+'" type="button">Waiting</button><button class="btn small danger" data-act="drop" data-id="'+e.id+'" type="button">Drop</button>';
+    else if(e.status==="Backlog") b='<button class="btn small" data-act="status" data-v="Open" data-id="'+e.id+'" type="button">Make active</button><button class="btn small danger" data-act="drop" data-id="'+e.id+'" type="button">Drop</button>';
+    else if(e.status==="Waiting") b='<button class="btn small" data-act="status" data-v="Open" data-id="'+e.id+'" type="button">Make active</button><button class="btn small good" data-act="done" data-id="'+e.id+'" type="button">Done</button>';
+    else b='<button class="btn small" data-act="status" data-v="Open" data-id="'+e.id+'" type="button">Reopen</button>';
+    var dl="";
+    if(!closed){var d=e.days==null?"":iso(new Date(now().getFullYear(),now().getMonth(),now().getDate()+e.days));
+      dl='<div class="inline"><label class="foot" for="dl-'+e.id+'">Deadline</label><input type="date" id="dl-'+e.id+'" value="'+d+'" style="background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:6px 8px"><button class="btn small" data-act="deadline" data-id="'+e.id+'" type="button">Save date</button></div>'}
+    return '<details class="e'+(closed||e.status==="Backlog"?" dim":"")+'"><summary><span class="ti">'+esc(e.title)+'<small>'+esc([e.id,e.type,e.owner].join(" · "))+'</small>'+(e.tags.length?'<span class="tags">'+e.tags.map(tagLink).join("")+'</span>':'')+'</span>'+
+       '<span class="chip '+(closed?"":w.cls)+'">'+esc(closed?e.status+(e.closed?" "+e.closed:""):(e.days==null?e.status:w.txt))+'</span></summary>'+
+       '<div class="body">'+(e.notes?'<div class="notes">'+linkify(e.notes)+'</div>':'')+dl+'<div class="btns">'+b+'</div></div></details>';
+  }
+
+function tagStats(){
+  var m={};
+  S.entries.forEach(function(e){e.tags.forEach(function(t){
+    var s=m[t]||(m[t]={name:t,active:0,backlog:0,closed:0,next:null});
+    if(e.status==="Open"||e.status==="Waiting"){s.active++;if(e.status==="Open"&&e.days!=null&&(s.next==null||e.days<s.next.days))s.next=e}
+    else if(e.status==="Backlog")s.backlog++;else s.closed++;
+  })});
+  return Object.keys(m).map(function(k){return m[k]}).sort(function(a,b){
+    var x=a.active?(a.next?a.next.days:5e8):1e9,y=b.active?(b.next?b.next.days:5e8):1e9;
+    return x-y||a.name.localeCompare(b.name);
+  });
+}
+function countLine(s){
+  var p=[];if(s.active)p.push(s.active+" active");if(s.backlog)p.push(s.backlog+" backlog");if(s.closed)p.push(s.closed+" closed");
+  return p.join(" · ")||"No entries";
+}
+function viewTags(){
+  var list=tagStats();
+  var h='<section><h2>Tags</h2>';
+  if(!list.length) return h+'<p class="empty">No tags yet. Add some when you create an entry.</p></section>';
+  h+=list.map(function(s){
+    var w=s.next?when(s.next):null;
+    return '<a class="tagrow'+(s.active?"":" quiet")+'" href="#tag-'+encodeURIComponent(s.name)+'"><span class="n">'+esc(s.name)+'<small>'+esc(countLine(s))+'</small></span>'+
+      (w?'<span class="chip '+w.cls+'">'+esc(w.txt)+'</span>':'')+'</a>';
+  }).join("");
+  return h+'</section>';
+}
+function currentTag(){try{return decodeURIComponent((location.hash||"").replace(/^#tag-/,""))}catch(e){return ""}}
+function viewTag(){
+  var t=currentTag();
+  var list=S.entries.filter(function(e){return e.tags.indexOf(t)>=0});
+  var s=tagStats().filter(function(x){return x.name===t})[0];
+  var h='<section><div class="taghead"><a class="back" href="#tags">All tags</a><h1>'+esc(t)+'</h1><p>'+esc(s?countLine(s):"No entries carry this tag.")+'</p>'+
+    '<div class="btns"><button class="btn small" data-act="addtag" data-v="'+esc(t)+'" type="button">Add an entry with this tag</button></div></div>';
+  var groups=[["Active",function(e){return e.status==="Open"||e.status==="Waiting"},byUrgency],
+              ["Backlog",function(e){return e.status==="Backlog"},byUrgency],
+              ["Closed",function(e){return e.status==="Done"||e.status==="Dropped"},function(a,b){return b.row-a.row}]];
+  groups.forEach(function(g){
+    var part=list.filter(g[1]).sort(g[2]);
+    if(part.length) h+='<div class="group"><h2>'+g[0]+'</h2>'+part.map(entryRow).join("")+'</div>';
+  });
+  return h+'</section>';
+}
+
 function viewAll(){
   var f=S.filter,tags={};
   S.entries.forEach(function(e){e.tags.forEach(function(t){tags[t]=1})});
@@ -370,19 +443,7 @@ function viewAll(){
     '<select class="f" id="ftag" aria-label="Tag"><option value="">Any tag</option>'+Object.keys(tags).sort().map(function(t){return '<option'+(f.tag===t?" selected":"")+'>'+esc(t)+'</option>'}).join("")+'</select></div>'+
     '<p class="count">'+list.length+(list.length===1?" entry":" entries")+'</p>';
   if(!list.length) h+='<p class="empty">Nothing matches.</p>';
-  list.forEach(function(e){
-    var w=when(e),closed=e.status==="Done"||e.status==="Dropped",b="";
-    if(e.status==="Open") b='<button class="btn small good" data-act="done" data-id="'+e.id+'" type="button">Done</button><button class="btn small" data-act="status" data-v="Backlog" data-id="'+e.id+'" type="button">Later</button><button class="btn small" data-act="status" data-v="Waiting" data-id="'+e.id+'" type="button">Waiting</button><button class="btn small danger" data-act="drop" data-id="'+e.id+'" type="button">Drop</button>';
-    else if(e.status==="Backlog") b='<button class="btn small" data-act="status" data-v="Open" data-id="'+e.id+'" type="button">Make active</button><button class="btn small danger" data-act="drop" data-id="'+e.id+'" type="button">Drop</button>';
-    else if(e.status==="Waiting") b='<button class="btn small" data-act="status" data-v="Open" data-id="'+e.id+'" type="button">Make active</button><button class="btn small good" data-act="done" data-id="'+e.id+'" type="button">Done</button>';
-    else b='<button class="btn small" data-act="status" data-v="Open" data-id="'+e.id+'" type="button">Reopen</button>';
-    var dl="";
-    if(!closed){var d=e.days==null?"":iso(new Date(now().getFullYear(),now().getMonth(),now().getDate()+e.days));
-      dl='<div class="inline"><label class="foot" for="dl-'+e.id+'">Deadline</label><input type="date" id="dl-'+e.id+'" value="'+d+'" style="background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:6px 8px"><button class="btn small" data-act="deadline" data-id="'+e.id+'" type="button">Save date</button></div>'}
-    h+='<details class="e'+(closed||e.status==="Backlog"?" dim":"")+'"><summary><span class="ti">'+esc(e.title)+'<small>'+esc([e.id,e.type,e.owner].concat(e.tags).join(" · "))+'</small></span>'+
-       '<span class="chip '+(closed?"":w.cls)+'">'+esc(closed?e.status+(e.closed?" "+e.closed:""):(e.days==null?e.status:w.txt))+'</span></summary>'+
-       '<div class="body">'+(e.notes?'<div class="notes">'+linkify(e.notes)+'</div>':'')+dl+'<div class="btns">'+b+'</div></div></details>';
-  });
+  h+=list.map(entryRow).join("");
   h+='<p class="foot" style="margin-top:14px"><a href="'+SHEET_URL+'" target="_blank" rel="noopener">Open the sheet</a></p></section>';
   return h;
 }
@@ -402,14 +463,14 @@ function viewAdd(){
     '<div class="btns"><button class="btn primary" type="submit">Add to tracker</button></div></form></section>';
 }
 
-function route(){var h=(location.hash||"").replace("#","");return ["today","all","add"].indexOf(h)>=0?h:"today"}
+function route(){var h=(location.hash||"").replace("#","");if(/^tag-./.test(h))return "tag";return ["today","all","add","tags"].indexOf(h)>=0?h:"today"}
 function paintChrome(){
   var d=now();
   $("dateline").textContent=d.toLocaleDateString(undefined,{weekday:"long",month:"long",day:"numeric"});
   $("refresh").textContent=S.busy?"Syncing":(!hasToken()?"Connect":(S.loadedAt?"Synced "+S.loadedAt.toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit"}):"Sync"));
   $("refresh").disabled=S.busy;
   var r=route();
-  [].forEach.call(document.querySelectorAll("nav.tabs a"),function(a){if(a.getAttribute("data-tab")===r)a.setAttribute("aria-current","page");else a.removeAttribute("aria-current")});
+  [].forEach.call(document.querySelectorAll("nav.tabs a"),function(a){if(a.getAttribute("data-tab")===(r==="tag"?"tags":r))a.setAttribute("aria-current","page");else a.removeAttribute("aria-current")});
   var b="",pend=queue().length;
   if(S.authNeeded||!hasToken()) b='<div class="notice"><b>'+(S.loadedAt?"Showing the copy saved on this device.":"Connect to load the tracker.")+'</b>'+(pend?pend+(pend===1?" change is":" changes are")+" waiting to upload. ":"")+'Google sign-in lasts about an hour.<div class="btns" style="margin-top:10px"><button class="btn small primary" data-act="connect" type="button">Connect Google</button></div></div>';
   else if(S.problem) b='<div class="notice"><b>'+esc(S.problem.t)+'</b>'+esc(S.problem.d)+(pend?" "+pend+" waiting to upload.":"")+'</div>';
@@ -422,7 +483,7 @@ function keepForm(){
 function render(){
   paintChrome();
   var r=route();
-  $("view").innerHTML=r==="all"?viewAll():r==="add"?viewAdd():viewToday();
+  $("view").innerHTML=r==="all"?viewAll():r==="add"?viewAdd():r==="tags"?viewTags():r==="tag"?viewTag():viewToday();
 }
 
 /* ---------- events ---------- */
@@ -430,6 +491,7 @@ document.addEventListener("click",function(ev){
   var el=ev.target.closest("[data-act]");if(!el) return;
   var a=el.getAttribute("data-act"),id=el.getAttribute("data-id"),v=el.getAttribute("data-v"),e=id?find(id):null;
   if(a==="connect"){sync(true);return}
+  if(a==="addtag"){S.form.tags=v;location.hash="#add";return}
   if(a==="done"&&e){S.extra=false;setStatus(e,"Done")}
   else if(a==="status"&&e){setStatus(e,v)}
   else if(a==="drop"&&e){
@@ -458,7 +520,7 @@ document.addEventListener("submit",function(ev){
   if(route()!=="today")location.hash="#today";else render();
 });
 $("refresh").addEventListener("click",function(){sync(true)});
-window.addEventListener("hashchange",function(){keepForm();render()});
+window.addEventListener("hashchange",function(){keepForm();render();window.scrollTo(0,0)});
 
 /* ---------- boot ---------- */
 handleOAuthReturn();
