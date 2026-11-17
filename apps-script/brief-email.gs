@@ -42,7 +42,7 @@ function sendBrief(force) {
     var b = parseBrief(text);
     MailApp.sendEmail({
       to: to,
-      subject: 'Bronco Forte: ' + stripCodes(b.today || 'today\'s brief'),
+      subject: 'Bronco Forte daily digest ' + Utilities.formatDate(new Date(), TZ, 'M/d/yy'),
       body: text + '\n\nOpen the Desk: ' + DESK,
       htmlBody: renderBrief(b, new Date()),
       name: 'Bronco Forte Desk'
