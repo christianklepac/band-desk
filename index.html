@@ -130,6 +130,11 @@ nav.tabs div{display:flex;width:100%;max-width:560px}
 nav.tabs a{flex:1;text-align:center;padding:14px 8px 16px;text-decoration:none;color:var(--dust);font-family:var(--display);font-weight:700;letter-spacing:.12em;text-transform:uppercase;font-size:15px;border-top:2px solid transparent;margin-top:-1px}
 nav.tabs a[aria-current="page"]{color:var(--bone);border-top-color:var(--sun)}
 
+.sheet{position:fixed;left:0;right:0;bottom:64px;display:flex;justify-content:center;padding:0 12px;z-index:5}
+.sheet>div{width:100%;max-width:536px;background:var(--panel);border:1px solid var(--dust);border-radius:14px;padding:16px;box-shadow:0 10px 40px rgba(0,0,0,.6);display:flex;flex-direction:column;gap:12px}
+.sheet b{font-family:var(--display);font-size:22px;font-weight:900;letter-spacing:.02em}
+.sheet p{margin:0;color:var(--dust);font-size:14px}
+.followof{font-size:13px;color:var(--dust);border-left:3px solid var(--sun);padding:4px 0 4px 10px}
 .toast{position:fixed;left:50%;bottom:76px;transform:translateX(-50%);background:var(--bone);color:#141210;border-radius:10px;padding:10px 16px;font-size:14px;font-weight:600;max-width:calc(100% - 32px);box-shadow:0 6px 24px rgba(0,0,0,.5)}
 .toast.err{background:var(--rust);color:#fff}
 .foot{font-size:13px;color:var(--dust)}
@@ -152,6 +157,7 @@ nav.tabs a[aria-current="page"]{color:var(--bone);border-top-color:var(--sun)}
   <a href="#tags" data-tab="tags">Tags</a>
   <a href="#add" data-tab="add">Add</a>
 </div></nav>
+<div id="sheet"></div>
 <div id="toast" role="status" aria-live="polite"></div>
 
 <script>
@@ -177,8 +183,6 @@ function disp(d){return (d.getMonth()+1)+"/"+d.getDate()+"/"+String(d.getFullYea
 function store(k,v){try{if(v===undefined){var x=localStorage.getItem(k);return x?JSON.parse(x):null}localStorage.setItem(k,JSON.stringify(v))}catch(e){return null}}
 function skipKey(){return "bf-skip-"+iso(now())}
 function skipped(){return store(skipKey())||[]}
-function progKey(){return "bf-prog-"+iso(now())}
-function progressed(){return store(progKey())||[]}
 function logStamp(d){return (d.getMonth()+1)+"."+pad(d.getDate())}
 
 function toast(msg,err){var t=$("toast");t.innerHTML='<div class="toast'+(err?" err":"")+'">'+esc(msg)+"</div>";clearTimeout(toast.t);toast.t=setTimeout(function(){t.innerHTML=""},err?6000:2600)}
@@ -257,7 +261,7 @@ function applyLocal(op){
     if(find(op.tmp)) return;
     var f=op.f;
     S.entries.push({row:1e6+op.n,id:op.tmp,title:f.what.trim(),type:f.type,tags:tagList(f.tags),owner:f.owner,deadline:f.deadline?dlText(f.deadline):"",
-      status:f.status,goal:"",notes:"",source:"App",added:disp(new Date(op.at)),closed:"",days:f.deadline?daysFrom(f.deadline):null});
+      status:f.status,goal:"",notes:f.followOf?"Follow-up to "+f.followOf+": "+(f.followTitle||""):"",source:"App",added:disp(new Date(op.at)),closed:"",days:f.deadline?daysFrom(f.deadline):null});
     return;
   }
   var e=find(op.id);if(!e) return;
@@ -271,7 +275,7 @@ async function sendOp(op,ctx){
     var dup=ctx.list.filter(function(e){return e.source==="App"&&e.title===title&&e.added===day})[0];
     if(dup){ctx.tmp[op.tmp]=dup.id;return}
     var n=++ctx.maxN,id="E-"+(n<10?"00"+n:n<100?"0"+n:n),row=++ctx.maxRow;
-    await put("Entries!A"+row+":L"+row,[[id,title,f.type,tagList(f.tags).join(", "),f.owner,f.deadline||"",f.status,"","","App",iso(new Date(op.at)),""]]);
+    await put("Entries!A"+row+":L"+row,[[id,title,f.type,tagList(f.tags).join(", "),f.owner,f.deadline||"",f.status,"",f.followOf?"Follow-up to "+f.followOf+": "+(f.followTitle||""):"","App",iso(new Date(op.at)),""]]);
     ctx.tmp[op.tmp]=id;ctx.rows[id]=row;return;
   }
   var id2=ctx.tmp[op.id]||op.id,r=ctx.rows[id2];
@@ -328,7 +332,6 @@ function setStatus(e,status){
 }
 function logProgress(e,text,fromToday){
   var line=logStamp(now())+" - "+text.trim();
-  if(fromToday){var pr=progressed();if(pr.indexOf(e.id)<0)pr.push(e.id);store(progKey(),pr);S.extra=false}
   return act("Progress logged",{kind:"log",id:e.id,line:line});
 }
 function logForm(id,place){
@@ -359,17 +362,10 @@ function viewToday(){
   var shows=S.entries.filter(function(e){return e.type==="Event"&&e.status==="Open"&&e.days!=null&&e.days>=0}).sort(byUrgency);
   if(shows[0]){var s=shows[0];h+='<div class="nextshow"><b>'+(s.days===0?"TONIGHT":s.days+(s.days===1?" DAY":" DAYS"))+'</b><span>'+esc(s.title)+'</span>'+esc(s.deadline)+'</div>'}
 
-  var done=doneToday(),c=candidates(),sk=skipped(),pr=progressed();
-  var pick=null;for(var i=0;i<c.length;i++){if(sk.indexOf(c[i].id)<0&&pr.indexOf(c[i].id)<0){pick=c[i];break}}
-  var lastProg=null;for(var j=pr.length-1;j>=0;j--){var pe=find(pr[j]);if(pe&&pe.status==="Open"){lastProg=pe;break}}
+  var done=doneToday(),c=candidates(),sk=skipped();
+  var pick=null;for(var i=0;i<c.length;i++){if(sk.indexOf(c[i].id)<0){pick=c[i];break}}
   h+="<section>";
-  if(lastProg&&!S.extra){
-    var lines=String(lastProg.notes||"").split("\n"),last=lines[lines.length-1];
-    h+='<div class="today done"><div class="label">Progress logged</div><h1>'+esc(lastProg.title)+'</h1>'+
-       '<p>'+linkify(last)+'\nThat counts as today\'s one thing.</p>'+
-       '<div class="btns"><button class="btn good" data-act="done" data-id="'+esc(lastProg.id)+'" type="button">Actually, it\'s done</button>'+
-       '<button class="btn" data-act="extra" type="button">Give me another</button></div></div>';
-  }else if(done.length&&!S.extra){
+  if(done.length&&!S.extra){
     h+='<div class="today done"><div class="label">Done for today</div><h1>'+esc(done[done.length-1].title)+'</h1>'+
        '<p>'+(done.length>1?done.length+" entries closed today. ":"")+'That is the one thing. The rest can wait until tomorrow.</p>'+
        '<div class="btns"><button class="btn" data-act="extra" type="button">Give me another</button></div></div>';
@@ -382,7 +378,7 @@ function viewToday(){
        '<div class="btns"><button class="btn primary" data-act="done" data-id="'+esc(pick.id)+'" type="button">Done</button>'+
        '<button class="btn" data-act="logopen" type="button" aria-expanded="'+(!!S.logOpen)+'">Log progress</button>'+
        '<button class="btn" data-act="skip" data-id="'+esc(pick.id)+'" type="button">Not today</button></div>'+
-       (S.logOpen?logForm(pick.id,"today")+'<div class="loghint">Saved to the entry\'s notes as '+esc(logStamp(now()))+' - your note. The task stays open.</div>':'')+'</div>';
+       (S.logOpen?logForm(pick.id,"today")+'<div class="loghint">Added to the notes as '+esc(logStamp(now()))+' - your note. The task stays here until you mark it done.</div>':'')+'</div>';
   }else if(S.entries.length){
     h+='<div class="today done"><div class="label">Nothing to pick</div><h1>No open tasks of yours'+(sk.length?" left for today":"")+'</h1>'+
        (sk.length?'<div class="btns"><button class="btn" data-act="unskip" type="button">Bring back the '+sk.length+' set aside</button></div>':'<p>Add something, or move an entry out of the backlog in All.</p>')+'</div>';
@@ -485,7 +481,8 @@ function viewAdd(){
   var f=S.form,tags={};
   S.entries.forEach(function(e){e.tags.forEach(function(t){tags[t]=1})});
   var cur=f.tags.split(",").map(function(t){return t.trim()}).filter(Boolean);
-  return '<section><h2>Add an entry</h2><form class="add" id="addform" autocomplete="off">'+
+  return '<section><h2>'+(f.followOf?'Add a follow-up':'Add an entry')+'</h2><form class="add" id="addform" autocomplete="off">'+
+    (f.followOf?'<div class="followof">Follows '+esc(f.followOf)+': '+esc(f.followTitle||"")+' <button class="f" type="button" data-act="fu-clear" style="margin-left:6px">Not a follow-up</button></div>':'')+
     '<div class="field"><label for="what">What is it?</label><input type="text" id="what" value="'+esc(f.what)+'" placeholder="Ask Stork Club about load-in time" required></div>'+
     '<div class="field"><span class="lab">When should it show up?</span><div class="seg" role="group"><button type="button" data-act="fstat" data-v="Open" aria-pressed="'+(f.status==="Open")+'">Active now</button><button type="button" data-act="fstat" data-v="Backlog" aria-pressed="'+(f.status==="Backlog")+'">Backlog</button></div></div>'+
     '<div class="two"><div class="field"><label for="owner">Owner</label><select id="owner">'+OWNERS.map(function(o){return '<option'+(f.owner===o?" selected":"")+'>'+o+'</option>'}).join("")+'</select></div>'+
@@ -513,8 +510,12 @@ function keepForm(){
   if(!$("addform")) return;
   S.form.what=$("what").value;S.form.owner=$("owner").value;S.form.type=$("type").value;S.form.deadline=$("deadline").value;S.form.tags=$("tags").value;
 }
+function paintSheet(){
+  var fu=S.followUp;
+  $("sheet").innerHTML=fu?'<div class="sheet" role="dialog" aria-label="Add a follow-up task"><div><b>Add a follow-up task?</b><p>'+esc(fu.title)+' is done.'+(fu.tags?' The follow-up gets the same tags: '+esc(fu.tags)+'.':'')+'</p><div class="btns"><button class="btn primary" data-act="fu-yes" type="button">Add follow-up</button><button class="btn" data-act="fu-no" type="button">No thanks</button></div></div></div>':'';
+}
 function render(){
-  paintChrome();
+  paintChrome();paintSheet();
   var r=route();
   $("view").innerHTML=r==="all"?viewAll():r==="add"?viewAdd():r==="tags"?viewTags():r==="tag"?viewTag():viewToday();
 }
@@ -525,7 +526,10 @@ document.addEventListener("click",function(ev){
   var a=el.getAttribute("data-act"),id=el.getAttribute("data-id"),v=el.getAttribute("data-v"),e=id?find(id):null;
   if(a==="connect"){sync(true);return}
   if(a==="addtag"){S.form.tags=v;location.hash="#add";return}
-  if(a==="done"&&e){S.extra=false;setStatus(e,"Done")}
+  if(a==="done"&&e){S.extra=false;S.followUp={id:e.id,title:e.title,tags:e.tags.join(", "),owner:e.owner};setStatus(e,"Done");return}
+  if(a==="fu-yes"&&S.followUp){var fu=S.followUp;S.followUp=null;S.form={what:"",type:"Task",owner:fu.owner==="Band"?"Chris":(fu.owner||"Chris"),deadline:"",tags:fu.tags,status:"Open",followOf:fu.id,followTitle:fu.title};if(route()==="add")render();else location.hash="#add";setTimeout(function(){var w=$("what");if(w)w.focus()},50);return}
+  if(a==="fu-no"){S.followUp=null;render();return}
+  if(a==="fu-clear"){keepForm();S.form.followOf=null;S.form.followTitle=null;render();return}
   else if(a==="status"&&e){setStatus(e,v)}
   else if(a==="drop"&&e){
     if(el.getAttribute("data-armed")){setStatus(e,"Dropped")}
