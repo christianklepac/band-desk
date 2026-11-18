@@ -183,6 +183,10 @@ function disp(d){return (d.getMonth()+1)+"/"+d.getDate()+"/"+String(d.getFullYea
 function store(k,v){try{if(v===undefined){var x=localStorage.getItem(k);return x?JSON.parse(x):null}localStorage.setItem(k,JSON.stringify(v))}catch(e){return null}}
 function skipKey(){return "bf-skip-"+iso(now())}
 function skipped(){return store(skipKey())||[]}
+function movedKey(){return "bf-moved-"+iso(now())}
+function moved(){return store(movedKey())||[]}
+function extraKey(){return "bf-extra-"+iso(now())}
+function wantsExtra(){return !!(S.extra||store(extraKey()))}
 function logStamp(d){return (d.getMonth()+1)+"."+pad(d.getDate())}
 
 function toast(msg,err){var t=$("toast");t.innerHTML='<div class="toast'+(err?" err":"")+'">'+esc(msg)+"</div>";clearTimeout(toast.t);toast.t=setTimeout(function(){t.innerHTML=""},err?6000:2600)}
@@ -332,6 +336,8 @@ function setStatus(e,status){
 }
 function logProgress(e,text,fromToday){
   var line=logStamp(now())+" - "+text.trim();
+  var mv=moved();if(mv.indexOf(e.id)<0){mv.push(e.id);store(movedKey(),mv)}
+  if(fromToday){S.extra=false;store(extraKey(),false)}
   return act("Progress logged",{kind:"log",id:e.id,line:line});
 }
 function logForm(id,place){
@@ -362,23 +368,37 @@ function viewToday(){
   var shows=S.entries.filter(function(e){return e.type==="Event"&&e.status==="Open"&&e.days!=null&&e.days>=0}).sort(byUrgency);
   if(shows[0]){var s=shows[0];h+='<div class="nextshow"><b>'+(s.days===0?"TONIGHT":s.days+(s.days===1?" DAY":" DAYS"))+'</b><span>'+esc(s.title)+'</span>'+esc(s.deadline)+'</div>'}
 
-  var done=doneToday(),c=candidates(),sk=skipped();
-  var pick=null;for(var i=0;i<c.length;i++){if(sk.indexOf(c[i].id)<0){pick=c[i];break}}
+  var done=doneToday(),c=candidates(),sk=skipped(),mv=moved(),extra=wantsExtra();
+  var movedOpen=mv.map(find).filter(function(e){return e&&e.status==="Open"});
+  var pick=null;for(var i=0;i<c.length;i++){if(sk.indexOf(c[i].id)<0&&mv.indexOf(c[i].id)<0){pick=c[i];break}}
+  var movedCard=function(m){
+    var w=when(m),lines=String(m.notes||"").split("\n"),last=lines[lines.length-1];
+    return '<div class="today done"><div class="label">Moved forward today</div><h1>'+esc(m.title)+'</h1>'+
+       '<div class="meta"><span class="chip when '+w.cls+'">'+esc(w.txt)+'</span>'+m.tags.map(tagLink).join("")+'</div>'+
+       '<p>'+linkify(last)+'</p>'+
+       '<p>That counts as today\'s move. It stays here until you mark it done.</p>'+
+       '<div class="btns"><button class="btn primary" data-act="done" data-id="'+esc(m.id)+'" type="button">Done</button>'+
+       '<button class="btn" data-act="logopen" type="button" aria-expanded="'+(!!S.logOpen)+'">Log more</button>'+
+       '<button class="btn" data-act="extra" type="button">Give me another</button></div>'+
+       (S.logOpen?logForm(m.id,"today"):'')+'</div>';
+  };
   h+="<section>";
-  if(done.length&&!S.extra){
+  if(movedOpen.length&&!extra){
+    h+=movedOpen.map(movedCard).join('<div style="height:12px"></div>');
+  }else if(done.length&&!extra){
     h+='<div class="today done"><div class="label">Done for today</div><h1>'+esc(done[done.length-1].title)+'</h1>'+
        '<p>'+(done.length>1?done.length+" entries closed today. ":"")+'That is the one thing. The rest can wait until tomorrow.</p>'+
        '<div class="btns"><button class="btn" data-act="extra" type="button">Give me another</button></div></div>';
   }else if(pick){
     var w=when(pick);
-    h+='<div class="today"><div class="label">'+(done.length?"One more":"Today's one thing")+'</div><h1>'+esc(pick.title)+'</h1>'+
+    h+='<div class="today"><div class="label">'+(done.length||movedOpen.length?"One more":"Today's one thing")+'</div><h1>'+esc(pick.title)+'</h1>'+
        '<div class="meta"><span class="chip when '+w.cls+'">'+esc(w.txt)+'</span><span class="chip">'+esc(pick.id)+'</span>'+
        pick.tags.map(tagLink).join("")+'</div>'+
        (pick.notes?'<p>'+linkify(pick.notes)+'</p>':'')+
        '<div class="btns"><button class="btn primary" data-act="done" data-id="'+esc(pick.id)+'" type="button">Done</button>'+
        '<button class="btn" data-act="logopen" type="button" aria-expanded="'+(!!S.logOpen)+'">Log progress</button>'+
        '<button class="btn" data-act="skip" data-id="'+esc(pick.id)+'" type="button">Not today</button></div>'+
-       (S.logOpen?logForm(pick.id,"today")+'<div class="loghint">Added to the notes as '+esc(logStamp(now()))+' - your note. The task stays here until you mark it done.</div>':'')+'</div>';
+       (S.logOpen?logForm(pick.id,"today")+'<div class="loghint">Added to the notes as '+esc(logStamp(now()))+' - your note. Logging counts as today\'s move; the task stays here until you mark it done.</div>':'')+'</div>';
   }else if(S.entries.length){
     h+='<div class="today done"><div class="label">Nothing to pick</div><h1>No open tasks of yours'+(sk.length?" left for today":"")+'</h1>'+
        (sk.length?'<div class="btns"><button class="btn" data-act="unskip" type="button">Bring back the '+sk.length+' set aside</button></div>':'<p>Add something, or move an entry out of the backlog in All.</p>')+'</div>';
@@ -526,7 +546,7 @@ document.addEventListener("click",function(ev){
   var a=el.getAttribute("data-act"),id=el.getAttribute("data-id"),v=el.getAttribute("data-v"),e=id?find(id):null;
   if(a==="connect"){sync(true);return}
   if(a==="addtag"){S.form.tags=v;location.hash="#add";return}
-  if(a==="done"&&e){S.extra=false;S.followUp={id:e.id,title:e.title,tags:e.tags.join(", "),owner:e.owner};setStatus(e,"Done");return}
+  if(a==="done"&&e){S.extra=false;store(extraKey(),false);S.followUp={id:e.id,title:e.title,tags:e.tags.join(", "),owner:e.owner};setStatus(e,"Done");return}
   if(a==="fu-yes"&&S.followUp){var fu=S.followUp;S.followUp=null;S.form={what:"",type:"Task",owner:fu.owner==="Band"?"Chris":(fu.owner||"Chris"),deadline:"",tags:fu.tags,status:"Open",followOf:fu.id,followTitle:fu.title};if(route()==="add")render();else location.hash="#add";setTimeout(function(){var w=$("what");if(w)w.focus()},50);return}
   if(a==="fu-no"){S.followUp=null;render();return}
   if(a==="fu-clear"){keepForm();S.form.followOf=null;S.form.followTitle=null;render();return}
@@ -539,7 +559,7 @@ document.addEventListener("click",function(ev){
   else if(a==="skip"){var s=skipped();if(s.indexOf(id)<0)s.push(id);store(skipKey(),s);render()}
   else if(a==="unskip"){store(skipKey(),[]);render()}
   else if(a==="logopen"){S.logOpen=!S.logOpen;render();if(S.logOpen){var inp=document.querySelector('form.logf[data-place="today"] input');if(inp)inp.focus()}}
-  else if(a==="extra"){S.extra=true;render()}
+  else if(a==="extra"){S.extra=true;store(extraKey(),true);S.logOpen=false;render()}
   else if(a==="fstatus"){S.filter.status=v;render()}
   else if(a==="fstat"){keepForm();S.form.status=v;render()}
   else if(a==="tag"){keepForm();var cur=S.form.tags.split(",").map(function(t){return t.trim()}).filter(Boolean),i=cur.indexOf(v);if(i>=0)cur.splice(i,1);else cur.push(v);S.form.tags=cur.join(", ");render()}
