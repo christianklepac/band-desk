@@ -442,9 +442,9 @@ function viewToday(){
   }
   h+="</section>";
 
-  var radar=S.entries.filter(function(e){return e.status==="Open"&&e.type!=="Reference"&&e.days!=null&&e.days<=7&&(!pick||e.id!==pick.id)}).sort(byUrgency);
+  var radar=S.entries.filter(function(e){return (e.status==="Open"||e.status==="Backlog")&&e.type!=="Reference"&&e.days!=null&&e.days<=7&&(!pick||e.id!==pick.id)}).sort(byUrgency);
   h+='<section><h2>Next 7 days</h2>';
-  if(radar.length){h+='<div class="list">'+radar.map(function(e){var w=when(e);return '<div class="row'+(e.type==="Event"?" event":"")+'"><div class="d '+w.cls+'">'+esc(w.txt)+'</div><div class="t">'+esc(e.title)+'<small>'+esc(e.type==="Event"?"Show":e.owner+" · "+e.type)+'</small></div></div>'}).join("")+'</div>'}
+  if(radar.length){h+='<div class="list">'+radar.map(function(e){var w=when(e);return '<div class="row'+(e.type==="Event"?" event":"")+'"><div class="d '+w.cls+'">'+esc(w.txt)+'</div><div class="t">'+esc(e.title)+'<small>'+esc(e.type==="Event"?"Show":e.owner+" · "+e.type+(e.status==="Backlog"?" · in backlog":""))+'</small></div></div>'}).join("")+'</div>'}
   else h+='<p class="empty">Nothing else due this week.</p>';
   h+='</section>';
 
@@ -547,7 +547,7 @@ function viewAdd(){
   return '<section><h2>'+(f.followOf?'Add a follow-up':'Add an entry')+'</h2><form class="add" id="addform" autocomplete="off">'+
     (f.followOf?'<div class="followof">Follows '+esc(f.followOf)+': '+esc(f.followTitle||"")+' <button class="f" type="button" data-act="fu-clear" style="margin-left:6px">Not a follow-up</button></div>':'')+
     '<div class="field"><label for="what">What is it?</label><input type="text" id="what" value="'+esc(f.what)+'" placeholder="Ask Stork Club about load-in time" required></div>'+
-    '<div class="field"><span class="lab">When should it show up?</span><div class="seg" role="group"><button type="button" data-act="fstat" data-v="Open" aria-pressed="'+(f.status==="Open")+'">Active now</button><button type="button" data-act="fstat" data-v="Backlog" aria-pressed="'+(f.status==="Backlog")+'">Backlog</button></div></div>'+
+    '<div class="field"><span class="lab">Where should it go?</span><div class="seg" role="group"><button type="button" data-act="fstat" data-v="Open" aria-pressed="'+(f.status==="Open")+'">Active (can show on Today)</button><button type="button" data-act="fstat" data-v="Backlog" aria-pressed="'+(f.status==="Backlog")+'">Backlog (hidden until you activate it)</button></div></div>'+
     '<div class="two"><div class="field"><label for="owner">Owner</label><select id="owner">'+OWNERS.map(function(o){return '<option'+(f.owner===o?" selected":"")+'>'+o+'</option>'}).join("")+'</select></div>'+
     '<div class="field"><label for="type">Type</label><select id="type">'+TYPES.map(function(o){return '<option'+(f.type===o?" selected":"")+'>'+o+'</option>'}).join("")+'</select></div></div>'+
     '<div class="field"><label for="deadline">Deadline (optional)</label><input type="date" id="deadline" value="'+esc(f.deadline)+'"></div>'+
@@ -663,7 +663,7 @@ sync(false);
 window.addEventListener("online",function(){sync(false)});
 document.addEventListener("visibilitychange",function(){if(!document.hidden&&hasToken()&&(!S.loadedAt||Date.now()-S.loadedAt.getTime()>120000))sync(false)});
 /* ---------- app updates ---------- */
-var APP_VERSION="2026-11-18c";
+var APP_VERSION="2026-11-19a";
 var SWREG=null;
 function paintVersion(msg){
   var v=$("ver");if(!v)return;
