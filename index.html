@@ -40,9 +40,9 @@ header.top{display:flex;align-items:flex-end;justify-content:space-between;gap:1
 .refresh:hover{color:var(--bone);border-color:var(--dust)}
 
 .shows{border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:4px 0}
-.nextshow{display:grid;grid-template-columns:96px 1fr auto;align-items:baseline;gap:10px;padding:6px 0;font-size:14px;color:var(--dust)}
+.nextshow{display:grid;grid-template-columns:84px 1fr auto;align-items:baseline;gap:10px;padding:4px 0;font-size:14px;color:var(--dust)}
 .nextshow+.nextshow{border-top:1px dashed var(--line)}
-.nextshow b{font-family:var(--display);font-size:22px;color:var(--sun);font-weight:900;letter-spacing:.02em;font-variant-numeric:tabular-nums}
+.nextshow b{font-family:var(--display);font-size:18px;color:var(--sun);font-weight:900;letter-spacing:.02em;font-variant-numeric:tabular-nums}
 .nextshow span{color:var(--bone);min-width:0;overflow-wrap:anywhere}
 .nextshow em{font-style:normal;white-space:nowrap;font-variant-numeric:tabular-nums}
 
@@ -173,7 +173,7 @@ var OWNERS=["Chris","Jen","Sako","Geoff","Band"];
 var TYPES=["Task","Decision","Event","Reference"];
 var STATUSES=["Open","Waiting","Backlog","Done","Dropped"];
 
-var S={authNeeded:false,entries:[],loadedAt:null,problem:null,busy:false,extra:false,
+var S={authNeeded:false,tagDefs:[],entries:[],loadedAt:null,problem:null,busy:false,extra:false,
        filter:{status:"Open",owner:"All",tag:""},
        form:{what:"",type:"Task",owner:"Chris",deadline:"",tags:"",status:"Open"}};
 
@@ -244,7 +244,15 @@ async function api(path,opts){
   if(!r.ok){var m="";try{m=(await r.json()).error.message}catch(e){}throw {code:"http_"+r.status,message:m}}
   return r.json();
 }
-async function fetchRows(){var j=await api("/values/"+encodeURIComponent("Entries!A:M"));return j.values||[]}
+async function fetchAll(){
+  var j=await api("/values:batchGet?ranges="+encodeURIComponent("Entries!A:M")+"&ranges="+encodeURIComponent("Tags!A:C"));
+  var vr=j.valueRanges||[];
+  return {rows:(vr[0]&&vr[0].values)||[],tagRows:(vr[1]&&vr[1].values)||[]};
+}
+function parseTags(rows){
+  var out=[];for(var i=1;i<rows.length;i++){var r=rows[i]||[];var t=normTag(r[0]);if(t)out.push({name:t,desc:r[1]||"",row:i+1})}return out;
+}
+function normTag(s){return String(s||"").trim().toLowerCase().replace(/\s+/g,"-").replace(/,/g,"")}
 function put(range,values){return api("/values/"+encodeURIComponent(range)+"?valueInputOption=USER_ENTERED",{method:"PUT",body:JSON.stringify({values:values})})}
 function explain(e){
   var c=e&&e.code;
@@ -264,6 +272,7 @@ function queue(){return store("bd.queue")||[]}
 function setQueue(q){store("bd.queue",q)}
 function tagList(s){return String(s||"").split(",").map(function(t){return t.trim().toLowerCase()}).filter(Boolean)}
 function applyLocal(op){
+  if(op.kind==="tag"){if(!S.tagDefs.some(function(t){return t.name===op.name}))S.tagDefs.push({name:op.name,desc:op.desc||"",row:1e6});return}
   if(op.kind==="add"){
     if(find(op.tmp)) return;
     var f=op.f;
@@ -277,6 +286,12 @@ function applyLocal(op){
   if(op.kind==="deadline"){e.deadline=op.value?dlText(op.value):"";e.days=op.value?daysFrom(op.value):null}
 }
 async function sendOp(op,ctx){
+  if(op.kind==="tag"){
+    if(ctx.tagNames.indexOf(op.name)>=0) return;
+    var tr=++ctx.tagMaxRow;
+    await put("Tags!A"+tr+":C"+tr,[[op.name,op.desc||"",iso(new Date(op.at))]]);
+    ctx.tagNames.push(op.name);return;
+  }
   if(op.kind==="add"){
     var f=op.f,title=f.what.trim(),day=disp(new Date(op.at));
     var dup=ctx.list.filter(function(e){return e.source==="App"&&e.title===title&&e.added===day})[0];
@@ -305,18 +320,19 @@ async function sync(interactive){
   S.busy=true;paintChrome();
   var fresh=false,lost=0;
   try{
-    var rows=await fetchRows(),q=queue();
+    var got=await fetchAll(),rows=got.rows,q=queue();
     if(q.length){
-      var list=parse(rows),ctx={list:list,rows:{},tmp:{},notes:{},maxN:0,maxRow:1};
+      var tdefs=parseTags(got.tagRows);
+      var list=parse(rows),ctx={list:list,rows:{},tmp:{},notes:{},maxN:0,maxRow:1,tagNames:tdefs.map(function(t){return t.name}),tagMaxRow:tdefs.reduce(function(m,t){return Math.max(m,t.row)},Math.max(1,got.tagRows.length))};
       list.forEach(function(e){ctx.rows[e.id]=e.row;var m=/^E-(\d+)$/.exec(e.id);if(m)ctx.maxN=Math.max(ctx.maxN,+m[1]);ctx.maxRow=Math.max(ctx.maxRow,e.row)});
       while(q.length){
         try{await sendOp(q[0],ctx)}catch(e){if(e.code==="auth"||e.code==="offline")throw e;lost++;S.problem=e.code==="gone"?{t:"One change could not be saved.",d:e.message}:explain(e)}
         q.shift();setQueue(q);
       }
-      rows=await fetchRows();
+      got=await fetchAll();rows=got.rows;
     }
-    S.entries=parse(rows);S.loadedAt=now();S.authNeeded=false;fresh=true;if(!lost)S.problem=null;
-    store("bf-cache",{entries:S.entries,at:S.loadedAt.getTime()});
+    S.entries=parse(rows);S.tagDefs=parseTags(got.tagRows);S.loadedAt=now();S.authNeeded=false;fresh=true;if(!lost)S.problem=null;
+    store("bf-cache",{entries:S.entries,tagDefs:S.tagDefs,at:S.loadedAt.getTime()});
   }catch(e){
     if(e.code==="auth")S.authNeeded=true;else S.problem=explain(e);
   }
@@ -369,7 +385,8 @@ function find(id){for(var i=0;i<S.entries.length;i++)if(S.entries[i].id===id)ret
 function viewToday(){
   var h="";
   var shows=S.entries.filter(function(e){return e.type==="Event"&&e.status==="Open"&&e.days!=null&&e.days>=0}).sort(byUrgency);
-  if(shows.length){h+='<div class="shows" aria-label="Upcoming shows">'+shows.map(function(s){return '<div class="nextshow"><b>'+(s.days===0?"TONIGHT":s.days+(s.days===1?" DAY":" DAYS"))+'</b><span>'+esc(s.title)+'</span><em>'+esc(s.deadline)+'</em></div>'}).join("")+'</div>'}
+  var moreShows=shows.length-5;if(moreShows>0&&!S.allShows)shows=shows.slice(0,5);
+  if(shows.length){h+='<div class="shows" aria-label="Upcoming shows">'+shows.map(function(s){return '<div class="nextshow"><b>'+(s.days===0?"TONIGHT":s.days+(s.days===1?" DAY":" DAYS"))+'</b><span>'+esc(s.title)+'</span><em>'+esc(s.deadline)+'</em></div>'}).join("")+(moreShows>0?'<button class="f" type="button" data-act="allshows" style="margin:6px 0">'+(S.allShows?'Show fewer':'+'+moreShows+' more')+'</button>':'')+'</div>'}
 
   var done=doneToday(),c=candidates(),sk=skipped(),mv=moved(),extra=wantsExtra();
   var movedOpen=mv.map(find).filter(function(e){return e&&e.status==="Open"});
@@ -439,8 +456,14 @@ function entryRow(e){
        '<div class="body">'+(e.notes?'<div class="notes">'+linkify(e.notes)+'</div>':'')+(closed?'':logForm(e.id,"row"))+dl+'<div class="btns">'+b+'</div></div></details>';
   }
 
+function allTagNames(){
+  var m={};S.entries.forEach(function(e){e.tags.forEach(function(t){m[t]=1})});S.tagDefs.forEach(function(t){m[t.name]=1});
+  return Object.keys(m).sort();
+}
+function tagDesc(t){var d=S.tagDefs.filter(function(x){return x.name===t})[0];return d?d.desc:""}
 function tagStats(){
   var m={};
+  S.tagDefs.forEach(function(t){m[t.name]={name:t.name,active:0,backlog:0,closed:0,next:null}});
   S.entries.forEach(function(e){e.tags.forEach(function(t){
     var s=m[t]||(m[t]={name:t,active:0,backlog:0,closed:0,next:null});
     if(e.status==="Open"||e.status==="Waiting"){s.active++;if(e.status==="Open"&&e.days!=null&&(s.next==null||e.days<s.next.days))s.next=e}
@@ -453,12 +476,14 @@ function tagStats(){
 }
 function countLine(s){
   var p=[];if(s.active)p.push(s.active+" active");if(s.backlog)p.push(s.backlog+" backlog");if(s.closed)p.push(s.closed+" closed");
-  return p.join(" · ")||"No entries";
+  return p.join(" · ")||"No entries yet";
 }
 function viewTags(){
   var list=tagStats();
-  var h='<section><h2>Tags</h2>';
-  if(!list.length) return h+'<p class="empty">No tags yet. Add some when you create an entry.</p></section>';
+  var h='<section><h2>Tags</h2>'+
+    '<form class="logf" id="tagform" autocomplete="off" style="margin-bottom:16px"><label for="newtag" style="position:absolute;left:-9999px">New tag</label>'+
+    '<input type="text" id="newtag" placeholder="New tag, e.g. az-nv-march" enterkeyhint="done"><button class="btn small" type="submit">Add tag</button></form>';
+  if(!list.length) return h+'<p class="empty">No tags yet.</p></section>';
   h+=list.map(function(s){
     var w=s.next?when(s.next):null;
     return '<a class="tagrow'+(s.active?"":" quiet")+'" href="#tag-'+encodeURIComponent(s.name)+'"><span class="n">'+esc(s.name)+'<small>'+esc(countLine(s))+'</small></span>'+
@@ -471,7 +496,7 @@ function viewTag(){
   var t=currentTag();
   var list=S.entries.filter(function(e){return e.tags.indexOf(t)>=0});
   var s=tagStats().filter(function(x){return x.name===t})[0];
-  var h='<section><div class="taghead"><a class="back" href="#tags">All tags</a><h1>'+esc(t)+'</h1><p>'+esc(s?countLine(s):"No entries carry this tag.")+'</p>'+
+  var h='<section><div class="taghead"><a class="back" href="#tags">All tags</a><h1>'+esc(t)+'</h1>'+(tagDesc(t)?'<p style="color:var(--bone)">'+esc(tagDesc(t))+'</p>':'')+'<p>'+esc(s?countLine(s):"No entries carry this tag.")+'</p>'+
     '<div class="btns"><button class="btn small" data-act="addtag" data-v="'+esc(t)+'" type="button">Add an entry with this tag</button></div></div>';
   var groups=[["Active",function(e){return e.status==="Open"||e.status==="Waiting"},byUrgency],
               ["Backlog",function(e){return e.status==="Backlog"},byUrgency],
@@ -502,7 +527,7 @@ function viewAll(){
 
 function viewAdd(){
   var f=S.form,tags={};
-  S.entries.forEach(function(e){e.tags.forEach(function(t){tags[t]=1})});
+  allTagNames().forEach(function(t){tags[t]=1});
   var cur=f.tags.split(",").map(function(t){return t.trim()}).filter(Boolean);
   return '<section><h2>'+(f.followOf?'Add a follow-up':'Add an entry')+'</h2><form class="add" id="addform" autocomplete="off">'+
     (f.followOf?'<div class="followof">Follows '+esc(f.followOf)+': '+esc(f.followTitle||"")+' <button class="f" type="button" data-act="fu-clear" style="margin-left:6px">Not a follow-up</button></div>':'')+
@@ -562,6 +587,7 @@ document.addEventListener("click",function(ev){
   else if(a==="skip"){var s=skipped();if(s.indexOf(id)<0)s.push(id);store(skipKey(),s);render()}
   else if(a==="unskip"){store(skipKey(),[]);render()}
   else if(a==="logopen"){S.logOpen=!S.logOpen;render();if(S.logOpen){var inp=document.querySelector('form.logf[data-place="today"] input');if(inp)inp.focus()}}
+  else if(a==="allshows"){S.allShows=!S.allShows;render()}
   else if(a==="extra"){S.extra=true;store(extraKey(),true);S.logOpen=false;render()}
   else if(a==="fstatus"){S.filter.status=v;render()}
   else if(a==="fstat"){keepForm();S.form.status=v;render()}
@@ -572,6 +598,15 @@ document.addEventListener("change",function(ev){
   if(ev.target.id==="ftag"){S.filter.tag=ev.target.value;render()}
 });
 document.addEventListener("submit",function(ev){
+  if(ev.target.id==="tagform"){
+    ev.preventDefault();
+    var name=normTag($("newtag").value);
+    if(!name)return;
+    if(allTagNames().indexOf(name)>=0){location.hash="#tag-"+encodeURIComponent(name);toast("That tag already exists");return}
+    act("Tag added",{kind:"tag",name:name,desc:"",at:Date.now()});
+    location.hash="#tag-"+encodeURIComponent(name);
+    return;
+  }
   if(ev.target.classList&&ev.target.classList.contains("logf")){
     ev.preventDefault();
     var fe=find(ev.target.getAttribute("data-id")),inp=ev.target.querySelector("input"),txt=inp?inp.value:"";
@@ -595,7 +630,7 @@ window.addEventListener("hashchange",function(){keepForm();render();window.scrol
 /* ---------- boot ---------- */
 handleOAuthReturn();
 var cached=store("bf-cache");
-if(cached&&cached.entries){S.entries=cached.entries;S.loadedAt=new Date(cached.at)}
+if(cached&&cached.entries){S.entries=cached.entries;S.tagDefs=cached.tagDefs||[];S.loadedAt=new Date(cached.at)}
 queue().forEach(applyLocal);
 render();
 sync(false);
