@@ -1,10 +1,12 @@
 // Network-first for the app's own files, so updates arrive on the next open;
 // falls back to the cached copy when offline. Google APIs and fonts are not cached.
-const CACHE = 'bd-v8';
+// Requests skip the browser's HTTP cache (GitHub Pages caches files for 10 minutes),
+// so a new deploy is picked up the next time the app opens.
+const CACHE = 'bd-v9';
 const SHELL = ['./', './index.html', './manifest.webmanifest', './icons/icon-192.png', './icons/icon-512.png', './icons/icon-maskable-512.png'];
 
 self.addEventListener('install', e => {
-  e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)));
+  e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL.map(u => new Request(u, { cache: 'reload' })))));
   self.skipWaiting();
 });
 
@@ -20,10 +22,12 @@ self.addEventListener('fetch', e => {
   const url = new URL(e.request.url);
   if (e.request.method !== 'GET' || url.origin !== self.location.origin) return;
   e.respondWith(
-    fetch(e.request)
+    fetch(url.href, { cache: 'no-cache', credentials: 'same-origin' })
       .then(res => {
-        const copy = res.clone();
-        caches.open(CACHE).then(c => c.put(e.request, copy));
+        if (res.ok) {
+          const copy = res.clone();
+          caches.open(CACHE).then(c => c.put(e.request, copy));
+        }
         return res;
       })
       .catch(() => caches.match(e.request).then(r => r || caches.match('./index.html')))

@@ -158,6 +158,7 @@ nav.tabs a[aria-current="page"]{color:var(--bone);border-top-color:var(--sun)}
   </header>
   <div id="banner"></div>
   <main id="view"><p class="empty">Loading the tracker.</p></main>
+  <p class="foot" id="ver" style="text-align:center;margin-top:8px"></p>
 </div>
 <nav class="tabs" aria-label="Views"><div>
   <a href="#today" data-tab="today">Today</a>
@@ -588,6 +589,7 @@ document.addEventListener("click",function(ev){
   var el=ev.target.closest("[data-act]");if(!el) return;
   var a=el.getAttribute("data-act"),id=el.getAttribute("data-id"),v=el.getAttribute("data-v"),e=id?find(id):null;
   if(a==="connect"){sync(true);return}
+  if(a==="checkupdate"){checkForUpdate(true);return}
   if(a==="addtag"){S.form.tags=v;location.hash="#add";return}
   if(a==="done"&&e){S.extra=false;store(extraKey(),false);S.followUp={id:e.id,title:e.title,tags:e.tags.join(", "),owner:e.owner};setStatus(e,"Done");return}
   if(a==="fu-yes"&&S.followUp){var fu=S.followUp;S.followUp=null;S.form={what:"",type:"Task",owner:fu.owner==="Band"?"Chris":(fu.owner||"Chris"),deadline:"",tags:fu.tags,status:"Open",followOf:fu.id,followTitle:fu.title};if(route()==="add")render();else location.hash="#add";setTimeout(function(){var w=$("what");if(w)w.focus()},50);return}
@@ -660,7 +662,34 @@ render();
 sync(false);
 window.addEventListener("online",function(){sync(false)});
 document.addEventListener("visibilitychange",function(){if(!document.hidden&&hasToken()&&(!S.loadedAt||Date.now()-S.loadedAt.getTime()>120000))sync(false)});
-if("serviceWorker" in navigator)window.addEventListener("load",function(){navigator.serviceWorker.register("./sw.js").catch(function(){})});
+/* ---------- app updates ---------- */
+var APP_VERSION="2026-11-18c";
+var SWREG=null;
+function paintVersion(msg){
+  var v=$("ver");if(!v)return;
+  v.innerHTML='Version '+APP_VERSION+' · <button class="f" type="button" data-act="checkupdate" style="padding:3px 10px">'+esc(msg||"Check for update")+'</button>';
+}
+paintVersion();
+function checkForUpdate(manual){
+  if(!SWREG){if(manual)location.reload();return}
+  if(manual)paintVersion("Checking");
+  SWREG.update().then(function(){
+    if(!manual)return;
+    if(SWREG.installing||SWREG.waiting){paintVersion("Updating")}
+    else{paintVersion("Up to date");setTimeout(function(){paintVersion()},2500)}
+  }).catch(function(){if(manual)paintVersion("Could not check")});
+}
+if("serviceWorker" in navigator){
+  var reloading=false,hadController=!!navigator.serviceWorker.controller;
+  navigator.serviceWorker.addEventListener("controllerchange",function(){
+    // A new version took over: reload once so the new code runs now.
+    if(!hadController||reloading)return;reloading=true;location.reload();
+  });
+  window.addEventListener("load",function(){
+    navigator.serviceWorker.register("./sw.js",{updateViaCache:"none"}).then(function(r){SWREG=r;r.update().catch(function(){})}).catch(function(){});
+  });
+  document.addEventListener("visibilitychange",function(){if(!document.hidden)checkForUpdate(false)});
+}
 })();
 </script>
 </body>
