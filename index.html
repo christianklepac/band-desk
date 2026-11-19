@@ -39,9 +39,12 @@ header.top{display:flex;align-items:flex-end;justify-content:space-between;gap:1
 .refresh{background:none;border:1px solid var(--line);border-radius:999px;padding:7px 12px;font-size:13px;color:var(--dust);cursor:pointer;white-space:nowrap}
 .refresh:hover{color:var(--bone);border-color:var(--dust)}
 
-.nextshow{display:flex;align-items:baseline;gap:10px;border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:10px 0;font-size:14px;color:var(--dust)}
+.shows{border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:4px 0}
+.nextshow{display:grid;grid-template-columns:96px 1fr auto;align-items:baseline;gap:10px;padding:6px 0;font-size:14px;color:var(--dust)}
+.nextshow+.nextshow{border-top:1px dashed var(--line)}
 .nextshow b{font-family:var(--display);font-size:22px;color:var(--sun);font-weight:900;letter-spacing:.02em;font-variant-numeric:tabular-nums}
-.nextshow span{color:var(--bone)}
+.nextshow span{color:var(--bone);min-width:0;overflow-wrap:anywhere}
+.nextshow em{font-style:normal;white-space:nowrap;font-variant-numeric:tabular-nums}
 
 .notice{border:1px solid var(--rust);border-radius:10px;padding:12px 14px;font-size:14px;background:rgba(208,96,58,.08)}
 .notice b{display:block;margin-bottom:2px}
@@ -366,7 +369,7 @@ function find(id){for(var i=0;i<S.entries.length;i++)if(S.entries[i].id===id)ret
 function viewToday(){
   var h="";
   var shows=S.entries.filter(function(e){return e.type==="Event"&&e.status==="Open"&&e.days!=null&&e.days>=0}).sort(byUrgency);
-  if(shows[0]){var s=shows[0];h+='<div class="nextshow"><b>'+(s.days===0?"TONIGHT":s.days+(s.days===1?" DAY":" DAYS"))+'</b><span>'+esc(s.title)+'</span>'+esc(s.deadline)+'</div>'}
+  if(shows.length){h+='<div class="shows" aria-label="Upcoming shows">'+shows.map(function(s){return '<div class="nextshow"><b>'+(s.days===0?"TONIGHT":s.days+(s.days===1?" DAY":" DAYS"))+'</b><span>'+esc(s.title)+'</span><em>'+esc(s.deadline)+'</em></div>'}).join("")+'</div>'}
 
   var done=doneToday(),c=candidates(),sk=skipped(),mv=moved(),extra=wantsExtra();
   var movedOpen=mv.map(find).filter(function(e){return e&&e.status==="Open"});
