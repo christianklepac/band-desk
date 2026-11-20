@@ -2,7 +2,7 @@
 // falls back to the cached copy when offline. Google APIs and fonts are not cached.
 // Requests skip the browser's HTTP cache (GitHub Pages caches files for 10 minutes),
 // so a new deploy is picked up the next time the app opens.
-const CACHE = 'bd-v10';
+const CACHE = 'bd-v11';
 const SHELL = ['./', './index.html', './manifest.webmanifest', './icons/icon-192.png', './icons/icon-512.png', './icons/icon-maskable-512.png'];
 
 self.addEventListener('install', e => {

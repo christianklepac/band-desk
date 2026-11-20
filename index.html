@@ -401,7 +401,7 @@ function viewToday(){
   var h="";
   var shows=S.entries.filter(function(e){return e.type==="Event"&&e.status==="Open"&&e.days!=null&&e.days>=0}).sort(byUrgency);
   var moreShows=shows.length-5;if(moreShows>0&&!S.allShows)shows=shows.slice(0,5);
-  if(shows.length){h+='<div class="shows" aria-label="Upcoming shows">'+shows.map(function(s){return '<div class="nextshow"><b>'+(s.days===0?"TONIGHT":s.days+(s.days===1?" DAY":" DAYS"))+'</b><span>'+esc(s.title)+'</span><em>'+esc(s.deadline)+'</em></div>'}).join("")+(moreShows>0?'<button class="f" type="button" data-act="allshows" style="margin:6px 0">'+(S.allShows?'Show fewer':'+'+moreShows+' more')+'</button>':'')+'</div>'}
+  if(shows.length){h+='<div class="shows" aria-label="Upcoming events">'+shows.map(function(s){return '<div class="nextshow"><b>'+(s.days===0?"TONIGHT":s.days+(s.days===1?" DAY":" DAYS"))+'</b><span>'+esc(s.title)+'</span><em>'+esc(s.deadline)+'</em></div>'}).join("")+(moreShows>0?'<button class="f" type="button" data-act="allshows" style="margin:6px 0">'+(S.allShows?'Show fewer':'+'+moreShows+' more')+'</button>':'')+'</div>'}
 
   var done=doneToday(),c=candidates(),sk=skipped(),mv=moved(),extra=wantsExtra();
   var movedOpen=mv.map(find).filter(function(e){return e&&e.status==="Open"});
@@ -444,7 +444,7 @@ function viewToday(){
 
   var radar=S.entries.filter(function(e){return (e.status==="Open"||e.status==="Backlog")&&e.type!=="Reference"&&e.days!=null&&e.days<=7&&(!pick||e.id!==pick.id)}).sort(byUrgency);
   h+='<section><h2>Next 7 days</h2>';
-  if(radar.length){h+='<div class="list">'+radar.map(function(e){var w=when(e);return '<div class="row'+(e.type==="Event"?" event":"")+'"><div class="d '+w.cls+'">'+esc(w.txt)+'</div><div class="t">'+esc(e.title)+'<small>'+esc(e.type==="Event"?"Show":e.owner+" · "+e.type+(e.status==="Backlog"?" · in backlog":""))+'</small></div></div>'}).join("")+'</div>'}
+  if(radar.length){h+='<div class="list">'+radar.map(function(e){var w=when(e);return '<div class="row'+(e.type==="Event"?" event":"")+'"><div class="d '+w.cls+'">'+esc(w.txt)+'</div><div class="t">'+esc(e.title)+'<small>'+esc(e.type==="Event"?(e.tags.indexOf("show")>=0?"Show":"Event"):e.owner+" · "+e.type+(e.status==="Backlog"?" · in backlog":""))+'</small></div></div>'}).join("")+'</div>'}
   else h+='<p class="empty">Nothing else due this week.</p>';
   h+='</section>';
 
@@ -663,7 +663,7 @@ sync(false);
 window.addEventListener("online",function(){sync(false)});
 document.addEventListener("visibilitychange",function(){if(!document.hidden&&hasToken()&&(!S.loadedAt||Date.now()-S.loadedAt.getTime()>120000))sync(false)});
 /* ---------- app updates ---------- */
-var APP_VERSION="2026-11-19a";
+var APP_VERSION="2026-11-20a";
 var SWREG=null;
 function paintVersion(msg){
   var v=$("ver");if(!v)return;
