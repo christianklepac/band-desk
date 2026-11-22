@@ -333,6 +333,7 @@ function applyLocal(op){
   if(op.kind==="log"){e.notes=e.notes?e.notes+"\n"+op.line:op.line;return}
   if(op.kind==="status"){e.status=op.status;if(op.closed!==null)e.closed=op.closed?disp(fromIso(op.closed)):""}
   if(op.kind==="tags"){e.tags=op.tags.slice();return}
+  if(op.kind==="title"){e.title=op.title;return}
   if(op.kind==="deadline"){e.deadline=op.value?dlText(op.value):"";e.days=op.value?daysFrom(op.value):null}
 }
 async function sendOp(op,ctx){
@@ -361,6 +362,7 @@ async function sendOp(op,ctx){
   if(op.kind==="status") await put("Entries!G"+r+":L"+r,[[op.status,null,null,null,null,op.closed]]);
   else if(op.kind==="deadline") await put("Entries!F"+r,[[op.value||""]]);
   else if(op.kind==="tags") await put("Entries!D"+r,[[op.tags.join(", ")]]);
+  else if(op.kind==="title"){var tt=op.title;if(/^[=+\-@]/.test(tt))tt="'"+tt;await put("Entries!B"+r,[[tt]])}
 }
 async function sync(interactive){
   if(S.busy) return;
@@ -419,9 +421,9 @@ function setTags(e,tags,label,scope){S.openRow=(scope||"row")+":"+e.id;return ac
 function tagEditor(e,scope){
   scope=scope||"row";var k=scope+"-"+esc(e.id);
   return '<div class="tagedit"><span class="foot">Tags</span><div class="tagset">'+
-    (e.tags.length?e.tags.map(function(t){return '<span class="chip rm"><a href="#tag-'+encodeURIComponent(t)+'" style="color:inherit;text-decoration:none">'+esc(t)+'</a><button type="button" data-act="untag" data-scope="'+scope+'" data-id="'+esc(e.id)+'" data-v=""'+esc(t)+'" aria-label="Remove tag '+esc(t)+'">×</button></span>'}).join(""):'<span class="foot">None yet</span>')+
+    (e.tags.length?e.tags.map(function(t){return '<span class="chip rm"><a href="#tag-'+encodeURIComponent(t)+'" style="color:inherit;text-decoration:none">'+esc(t)+'</a><button type="button" data-act="untag" data-scope="'+scope+'" data-id="'+esc(e.id)+'" data-v="'+esc(t)+'" aria-label="Remove tag '+esc(t)+'">×</button></span>'}).join(""):'<span class="foot">None yet</span>')+
     '</div><form class="logf tagadd" data-id="'+esc(e.id)+'" data-scope="'+scope+'"><label for="ta-'+k+'" style="position:absolute;left:-9999px">Add a tag</label>'+
-    '<input type="text" id="ta-'+k+'" list=""alltags" placeholder="Add a tag" autocomplete="off" enterkeyhint="done"><button class="btn small" type="submit">Add</button></form></div>';
+    '<input type="text" id="ta-'+k+'" list="alltags" placeholder="Add a tag" autocomplete="off" enterkeyhint="done"><button class="btn small" type="submit">Add</button></form></div>';
 }
 function setDeadline(e,val){return act(val?"Deadline saved":"Deadline cleared",{kind:"deadline",id:e.id,value:val||""})}
 function addEntry(f){var t=Date.now();return act("Added",{kind:"add",f:f,tmp:"new-"+t,n:t%100000,at:t})}
@@ -513,7 +515,12 @@ function entryBody(e,scope){
     var dl="";
     if(!closed){var d=e.days==null?"":iso(new Date(now().getFullYear(),now().getMonth(),now().getDate()+e.days));
       dl='<div class="inline"><label class="foot" for="dl-'+k+'">Deadline</label><input type="date" id="dl-'+k+'" value="'+d+'" style="background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:6px 8px"><button class="btn small" data-act="deadline" data-id="'+e.id+'" data-dl="dl-'+k+'" type="button">Save date</button></div>'}
-    return '<div class="body">'+(e.links&&e.links.length?'<div class="linked"><span class="foot">Links</span>'+e.links.map(resChip).join("")+'</div>':'')+(e.notes?'<div class="notes">'+linkify(e.notes)+'</div>':'')+(closed?'':logForm(e.id,scope))+tagEditor(e,scope)+dl+'<div class="btns">'+b+'</div></div>';
+    var rn="";
+    if(scope==="row"&&route()==="all"){
+      if(S.renaming===e.id) rn='<form class="logf renamef" data-id="'+esc(e.id)+'"><label for="rn-'+k+'" style="position:absolute;left:-9999px">New title</label><input type="text" id="rn-'+k+'" value="'+esc(e.title)+'" autocomplete="off" enterkeyhint="done"><button class="btn small" type="submit">Save</button><button class="btn small" data-act="rename-cancel" type="button">Cancel</button></form>';
+      else b+='<button class="btn small" data-act="rename" data-id="'+e.id+'" type="button">Rename</button>';
+    }
+    return '<div class="body">'+rn+(e.links&&e.links.length?'<div class="linked"><span class="foot">Links</span>'+e.links.map(resChip).join("")+'</div>':'')+(e.notes?'<div class="notes">'+linkify(e.notes)+'</div>':'')+(closed?'':logForm(e.id,scope))+tagEditor(e,scope)+dl+'<div class="btns">'+b+'</div></div>';
 }
 function isOpen(scope,id){return S.openRow===scope+":"+id}
 function entryRow(e){
@@ -777,6 +784,8 @@ document.addEventListener("click",function(ev){
     else{el.setAttribute("data-armed","1");el.textContent="Tap again to drop"}
   }
   else if(a==="deadline"&&e){var dk=el.getAttribute("data-dl"),dsc=(dk||"").replace(/^dl-/,"").replace("-"+id,"");if(dsc)S.openRow=dsc+":"+id;setDeadline(e,$(dk||("dl-row-"+id)).value)}
+  else if(a==="rename"&&e){S.renaming=e.id;S.openRow="row:"+e.id;render();var ri=$("rn-row-"+e.id);if(ri){ri.focus();ri.select()}}
+  else if(a==="rename-cancel"){S.renaming=null;render()}
   else if(a==="untag"&&e){setTags(e,e.tags.filter(function(t){return t!==v}),"Removed "+v,el.getAttribute("data-scope"))}
   else if(a==="skip"){var s=skipped();if(s.indexOf(id)<0)s.push(id);store(skipKey(),s);render()}
   else if(a==="unskip"){store(skipKey(),[]);render()}
@@ -812,6 +821,16 @@ document.addEventListener("submit",function(ev){
     if(!te||!nt)return;
     if(te.tags.indexOf(nt)>=0){toast("Already tagged "+nt);return}
     setTags(te,te.tags.concat([nt]),"Tagged "+nt,ev.target.getAttribute("data-scope"));
+    return;
+  }
+  if(ev.target.classList&&ev.target.classList.contains("renamef")){
+    ev.preventDefault();
+    var re=find(ev.target.getAttribute("data-id")),nv=ev.target.querySelector("input").value.trim();
+    S.renaming=null;
+    if(!re)return;
+    S.openRow="row:"+re.id;
+    if(!nv||nv===re.title){render();return}
+    act("Renamed",{kind:"title",id:re.id,title:nv});
     return;
   }
   if(ev.target.id==="tagform"){
@@ -853,7 +872,7 @@ sync(false);
 window.addEventListener("online",function(){sync(false)});
 document.addEventListener("visibilitychange",function(){if(!document.hidden&&hasToken()&&(!S.loadedAt||Date.now()-S.loadedAt.getTime()>120000))sync(false)});
 /* ---------- app updates ---------- */
-var APP_VERSION="2026-11-21a";
+var APP_VERSION="2026-11-22a";
 var SWREG=null;
 function paintVersion(msg){
   var v=$("ver");if(!v)return;
