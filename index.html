@@ -239,10 +239,22 @@ function parse(rows){
       tags:String(r[3]||"").split(",").map(function(t){return t.trim()}).filter(Boolean),
       owner:r[4]||"",deadline:r[5]||"",status:r[6]||"Open",goal:r[7]||"",notes:r[8]||"",
       source:r[9]||"",added:r[10]||"",closed:r[11]||"",days:days,
-      links:String(r[13]||"").split(",").map(function(t){return t.trim().toUpperCase()}).filter(Boolean)});
+      links:String(r[13]||"").split(",").map(function(t){return t.trim().toUpperCase()}).filter(Boolean),
+      start:isoOf(r[14])});
   }
   return out;
 }
+// Start (column O): "not before" date. Accepts yyyy-mm-dd or m/d/yy(yy); returns yyyy-mm-dd or "".
+function isoOf(v){
+  v=String(v==null?"":v).trim();if(!v)return "";
+  var m=/^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(v);if(m)return m[1]+"-"+pad(+m[2])+"-"+pad(+m[3]);
+  m=/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/.exec(v);if(m){var y=+m[3];if(y<100)y+=2000;return y+"-"+pad(+m[1])+"-"+pad(+m[2])}
+  return "";
+}
+// Not yet: has a Start date that is still in the future. Hidden from Today until then.
+function notYet(e){return !!e.start&&daysFrom(e.start)>0}
+// Today only: a one-day window (Start = deadline) that is today. Listed under the pinned events, not as the one thing.
+function todayOnly(e){return !!e.start&&e.status==="Open"&&e.type!=="Event"&&daysFrom(e.start)===0&&e.days===0}
 // Resources tab: A ID, B Title, C Type, D Status, E City, F State, G Tags, H Link, I Contact,
 // J Cost, K Notes, L Related, M Parent, N Source, O Batch, P Added
 function parseResources(rows){
@@ -293,7 +305,7 @@ async function api(path,opts){
   return r.json();
 }
 async function fetchAll(){
-  var j=await api("/values:batchGet?ranges="+encodeURIComponent("Entries!A:N")+"&ranges="+encodeURIComponent("Tags!A:F")+"&ranges="+encodeURIComponent("Resources!A:P"));
+  var j=await api("/values:batchGet?ranges="+encodeURIComponent("Entries!A:O")+"&ranges="+encodeURIComponent("Tags!A:F")+"&ranges="+encodeURIComponent("Resources!A:P"));
   var vr=j.valueRanges||[];
   return {rows:(vr[0]&&vr[0].values)||[],tagRows:(vr[1]&&vr[1].values)||[],resRows:(vr[2]&&vr[2].values)||[]};
 }
@@ -326,7 +338,7 @@ function applyLocal(op){
     if(find(op.tmp)) return;
     var f=op.f;
     S.entries.push({row:1e6+op.n,id:op.tmp,title:f.what.trim(),type:f.type,tags:tagList(f.tags),owner:f.owner,deadline:f.deadline?dlText(f.deadline):"",
-      status:f.status,goal:"",notes:f.followOf?"Follow-up to "+f.followOf+": "+(f.followTitle||""):"",source:"App",added:disp(new Date(op.at)),closed:"",days:f.deadline?daysFrom(f.deadline):null,links:[]});
+      status:f.status,goal:"",notes:f.followOf?"Follow-up to "+f.followOf+": "+(f.followTitle||""):"",source:"App",added:disp(new Date(op.at)),closed:"",days:f.deadline?daysFrom(f.deadline):null,links:[],start:f.start||""});
     return;
   }
   var e=find(op.id);if(!e) return;
@@ -335,6 +347,7 @@ function applyLocal(op){
   if(op.kind==="tags"){e.tags=op.tags.slice();return}
   if(op.kind==="title"){e.title=op.title;return}
   if(op.kind==="deadline"){e.deadline=op.value?dlText(op.value):"";e.days=op.value?daysFrom(op.value):null}
+  if(op.kind==="start"){e.start=op.value||""}
 }
 async function sendOp(op,ctx){
   if(op.kind==="tag"){
@@ -349,6 +362,7 @@ async function sendOp(op,ctx){
     if(dup){ctx.tmp[op.tmp]=dup.id;return}
     var n=++ctx.maxN,id="E-"+(n<10?"00"+n:n<100?"0"+n:n),row=++ctx.maxRow;
     await put("Entries!A"+row+":L"+row,[[id,title,f.type,tagList(f.tags).join(", "),f.owner,f.deadline||"",f.status,"",f.followOf?"Follow-up to "+f.followOf+": "+(f.followTitle||""):"","App",iso(new Date(op.at)),""]]);
+    if(f.start) await put("Entries!O"+row,[[f.start]]);
     ctx.tmp[op.tmp]=id;ctx.rows[id]=row;return;
   }
   var id2=ctx.tmp[op.id]||op.id,r=ctx.rows[id2];
@@ -361,6 +375,7 @@ async function sendOp(op,ctx){
   }
   if(op.kind==="status") await put("Entries!G"+r+":L"+r,[[op.status,null,null,null,null,op.closed]]);
   else if(op.kind==="deadline") await put("Entries!F"+r,[[op.value||""]]);
+  else if(op.kind==="start") await put("Entries!O"+r,[[op.value||""]]);
   else if(op.kind==="tags") await put("Entries!D"+r,[[op.tags.join(", ")]]);
   else if(op.kind==="title"){var tt=op.title;if(/^[=+\-@]/.test(tt))tt="'"+tt;await put("Entries!B"+r,[[tt]])}
 }
@@ -425,12 +440,13 @@ function tagEditor(e,scope){
     '</div><form class="logf tagadd" data-id="'+esc(e.id)+'" data-scope="'+scope+'"><label for="ta-'+k+'" style="position:absolute;left:-9999px">Add a tag</label>'+
     '<input type="text" id="ta-'+k+'" list="alltags" placeholder="Add a tag" autocomplete="off" enterkeyhint="done"><button class="btn small" type="submit">Add</button></form></div>';
 }
+function setStart(e,val){return act(val?"Start date saved":"Start date cleared",{kind:"start",id:e.id,value:val||""})}
 function setDeadline(e,val){return act(val?"Deadline saved":"Deadline cleared",{kind:"deadline",id:e.id,value:val||""})}
 function addEntry(f){var t=Date.now();return act("Added",{kind:"add",f:f,tmp:"new-"+t,n:t%100000,at:t})}
 
 /* ---------- derived ---------- */
 function byUrgency(a,b){var x=a.days==null?1e9:a.days,y=b.days==null?1e9:b.days;return x-y||a.row-b.row}
-function candidates(){return S.entries.filter(function(e){return e.status==="Open"&&e.owner==="Chris"&&(e.type==="Task"||e.type==="Decision")}).sort(byUrgency)}
+function candidates(){return S.entries.filter(function(e){return e.status==="Open"&&e.owner==="Chris"&&(e.type==="Task"||e.type==="Decision")&&!notYet(e)&&!todayOnly(e)}).sort(byUrgency)}
 function doneToday(){var t=disp(now());return S.entries.filter(function(e){return e.status==="Done"&&e.closed===t})}
 function when(e){
   if(e.days==null) return {txt:"No date",cls:""};
@@ -463,6 +479,8 @@ function viewToday(){
        '<button class="btn" data-act="extra" type="button">Give me another</button></div>'+
        (S.logOpen?logForm(m.id,"today"):'')+'</div>';
   };
+  var only=S.entries.filter(todayOnly).sort(byUrgency);
+  if(only.length) h+='<section><h2>Today only</h2><div class="list">'+only.map(function(e){return todayRow(e,"only","Today","late",e.owner+" · can only be done today")}).join("")+'</div></section>';
   h+="<section>";
   if(movedOpen.length&&!extra){
     h+=movedOpen.map(movedCard).join('<div style="height:12px"></div>');
@@ -488,13 +506,13 @@ function viewToday(){
   }
   h+="</section>";
 
-  var radar=S.entries.filter(function(e){return (e.status==="Open"||e.status==="Backlog")&&e.type!=="Reference"&&e.days!=null&&e.days<=7&&(!pick||e.id!==pick.id)}).sort(byUrgency);
+  var radar=S.entries.filter(function(e){return (e.status==="Open"||e.status==="Backlog")&&e.type!=="Reference"&&e.days!=null&&e.days<=7&&(!pick||e.id!==pick.id)&&!notYet(e)&&!todayOnly(e)}).sort(byUrgency);
   h+='<section><h2>Next 7 days</h2>';
   if(radar.length){h+='<div class="list">'+radar.map(function(e){var w=when(e);return todayRow(e,"week",w.txt,w.cls,e.type==="Event"?(e.tags.indexOf("show")>=0?"Show":"Event"):e.owner+" · "+e.type+(e.status==="Backlog"?" · in backlog":""),e.type==="Event"?"event":"")}).join("")+'</div>'}
   else h+='<p class="empty">Nothing else due this week.</p>';
   h+='</section>';
 
-  var waiting=S.entries.filter(function(e){return (e.status==="Waiting")||(e.status==="Open"&&e.owner!=="Chris"&&(e.type==="Task"||e.type==="Decision"))}).sort(byUrgency);
+  var waiting=S.entries.filter(function(e){return (e.status==="Waiting")||(e.status==="Open"&&e.owner!=="Chris"&&(e.type==="Task"||e.type==="Decision"))}).filter(function(e){return !notYet(e)&&!todayOnly(e)}).sort(byUrgency);
   h+='<section><h2>Waiting on</h2>';
   if(waiting.length){h+='<div class="list">'+waiting.map(function(e){var w=when(e);return todayRow(e,"wait",e.status==="Waiting"?"Waiting":e.owner,w.cls,e.days==null?"No date set":w.txt)}).join("")+'</div>'}
   else h+='<p class="empty">Nobody owes anything.</p>';
@@ -514,7 +532,8 @@ function entryBody(e,scope){
     else b='<button class="btn small" data-act="status" data-v="Open" data-id="'+e.id+'" type="button">Reopen</button>';
     var dl="";
     if(!closed){var d=e.days==null?"":iso(new Date(now().getFullYear(),now().getMonth(),now().getDate()+e.days));
-      dl='<div class="inline"><label class="foot" for="dl-'+k+'">Deadline</label><input type="date" id="dl-'+k+'" value="'+d+'" style="background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:6px 8px"><button class="btn small" data-act="deadline" data-id="'+e.id+'" data-dl="dl-'+k+'" type="button">Save date</button></div>'}
+      dl='<div class="inline"><label class="foot" for="dl-'+k+'">Deadline</label><input type="date" id="dl-'+k+'" value="'+d+'" style="background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:6px 8px"><button class="btn small" data-act="deadline" data-id="'+e.id+'" data-dl="dl-'+k+'" type="button">Save date</button></div>'+
+        '<div class="inline"><label class="foot" for="st-'+k+'">Not before</label><input type="date" id="st-'+k+'" value="'+esc(e.start||"")+'" style="background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:6px 8px"><button class="btn small" data-act="start" data-id="'+e.id+'" data-st="st-'+k+'" type="button">Save</button>'+(e.start?'<button class="btn small" data-act="start-clear" data-id="'+e.id+'" data-st="st-'+k+'" type="button">Clear</button>':'')+'</div>'}
     var rn="";
     if(scope==="row"&&route()==="all"){
       if(S.renaming===e.id) rn='<form class="logf renamef" data-id="'+esc(e.id)+'"><label for="rn-'+k+'" style="position:absolute;left:-9999px">New title</label><input type="text" id="rn-'+k+'" value="'+esc(e.title)+'" autocomplete="off" enterkeyhint="done"><button class="btn small" type="submit">Save</button><button class="btn small" data-act="rename-cancel" type="button">Cancel</button></form>';
@@ -526,7 +545,7 @@ function isOpen(scope,id){return S.openRow===scope+":"+id}
 function entryRow(e){
     var w=when(e),closed=e.status==="Done"||e.status==="Dropped";
     return '<details class="e'+(closed||e.status==="Backlog"?" dim":"")+'"'+(isOpen("row",e.id)?" open":"")+' data-scope="row" data-id="'+esc(e.id)+'"><summary><span class="ti">'+esc(e.title)+'<small>'+esc([e.id,e.type,e.owner].join(" · "))+'</small>'+(e.tags.length?'<span class="tags">'+e.tags.map(tagLink).join("")+'</span>':'')+'</span>'+
-       '<span class="chip '+(closed?"":w.cls)+'">'+esc(closed?e.status+(e.closed?" "+e.closed:""):(e.days==null?e.status:w.txt))+'</span></summary>'+entryBody(e,"row")+'</details>';
+       '<span class="chip '+(closed||notYet(e)?"":w.cls)+'">'+esc(closed?e.status+(e.closed?" "+e.closed:""):(notYet(e)?"From "+dlText(e.start):(e.days==null?e.status:w.txt)))+'</span></summary>'+entryBody(e,"row")+'</details>';
   }
 // A compact Today list row that opens into the same controls as an All row.
 function todayRow(e,scope,left,leftCls,sub,cls){
@@ -731,6 +750,7 @@ function viewAdd(){
     '<div class="two"><div class="field"><label for="owner">Owner</label><select id="owner">'+OWNERS.map(function(o){return '<option'+(f.owner===o?" selected":"")+'>'+o+'</option>'}).join("")+'</select></div>'+
     '<div class="field"><label for="type">Type</label><select id="type">'+TYPES.map(function(o){return '<option'+(f.type===o?" selected":"")+'>'+o+'</option>'}).join("")+'</select></div></div>'+
     '<div class="field"><label for="deadline">Deadline (optional)</label><input type="date" id="deadline" value="'+esc(f.deadline)+'"></div>'+
+    '<details class="more"'+(f.start?" open":"")+'><summary>Can\'t be done before a certain date?</summary><div class="field" style="margin-top:6px"><label for="start">Not before (optional)</label><input type="date" id="start" value="'+esc(f.start||"")+'"><p class="foot" style="margin:6px 0 0">Stays off Today until this date. Set it to the same day as the deadline for a one-day task, like a show-night errand.</p></div></details>'+
     '<div class="field"><label for="tags">Tags (optional, comma-separated)</label><input type="text" id="tags" value="'+esc(f.tags)+'" placeholder="bay-area-nov, merch">'+
     '<div class="filters" style="margin-top:6px">'+Object.keys(tags).sort().map(function(t){return '<button class="f" type="button" data-act="tag" data-v="'+esc(t)+'" aria-pressed="'+(cur.indexOf(t)>=0)+'">'+esc(t)+'</button>'}).join("")+'</div></div>'+
     '<div class="btns"><button class="btn primary" type="submit">Add to tracker</button></div></form></section>';
@@ -751,7 +771,7 @@ function paintChrome(){
 }
 function keepForm(){
   if(!$("addform")) return;
-  S.form.what=$("what").value;S.form.owner=$("owner").value;S.form.type=$("type").value;S.form.deadline=$("deadline").value;S.form.tags=$("tags").value;
+  S.form.what=$("what").value;S.form.owner=$("owner").value;S.form.type=$("type").value;S.form.deadline=$("deadline").value;S.form.start=$("start")?$("start").value:"";S.form.tags=$("tags").value;
 }
 function paintSheet(){
   var fu=S.followUp;
@@ -786,6 +806,7 @@ document.addEventListener("click",function(ev){
   else if(a==="deadline"&&e){var dk=el.getAttribute("data-dl"),dsc=(dk||"").replace(/^dl-/,"").replace("-"+id,"");if(dsc)S.openRow=dsc+":"+id;setDeadline(e,$(dk||("dl-row-"+id)).value)}
   else if(a==="rename"&&e){S.renaming=e.id;S.openRow="row:"+e.id;render();var ri=$("rn-row-"+e.id);if(ri){ri.focus();ri.select()}}
   else if(a==="rename-cancel"){S.renaming=null;render()}
+  else if((a==="start"||a==="start-clear")&&e){var sk2=el.getAttribute("data-st"),ssc=(sk2||"").replace(/^st-/,"").replace("-"+id,"");if(ssc)S.openRow=ssc+":"+id;setStart(e,a==="start"?$(sk2).value:"")}
   else if(a==="untag"&&e){setTags(e,e.tags.filter(function(t){return t!==v}),"Removed "+v,el.getAttribute("data-scope"))}
   else if(a==="skip"){var s=skipped();if(s.indexOf(id)<0)s.push(id);store(skipKey(),s);render()}
   else if(a==="unskip"){store(skipKey(),[]);render()}
@@ -872,7 +893,7 @@ sync(false);
 window.addEventListener("online",function(){sync(false)});
 document.addEventListener("visibilitychange",function(){if(!document.hidden&&hasToken()&&(!S.loadedAt||Date.now()-S.loadedAt.getTime()>120000))sync(false)});
 /* ---------- app updates ---------- */
-var APP_VERSION="2026-11-22a";
+var APP_VERSION="2026-11-23a";
 var SWREG=null;
 function paintVersion(msg){
   var v=$("ver");if(!v)return;
