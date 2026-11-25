@@ -28,7 +28,7 @@
 *{box-sizing:border-box}
 html,body{margin:0}
 body{background:var(--bg);color:var(--bone);font-family:var(--body);font-size:16px;line-height:1.45;-webkit-font-smoothing:antialiased}
-button,input,select{font:inherit;color:inherit}
+button,input,select,textarea{font:inherit;color:inherit}
 a{color:var(--sun)}
 :focus-visible{outline:2px solid var(--sun);outline-offset:2px}
 .wrap{max-width:560px;margin:0 auto;padding:18px 16px 96px;display:flex;flex-direction:column;gap:22px}
@@ -160,6 +160,25 @@ details.more{margin-top:22px}
 details.more summary{cursor:pointer;color:var(--dust);font-size:14px;padding:8px 0}
 .kind{font-family:var(--display);font-weight:700;font-size:13px;letter-spacing:.14em;text-transform:uppercase;color:var(--dust);margin:16px 0 4px}
 nav.tabs a[aria-current="page"]{color:var(--bone);border-top-color:var(--sun)}
+.field textarea{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px;min-height:90px;width:100%;resize:vertical}
+.chipset{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.chip.rm.res a{color:var(--sage)!important}
+.proj{display:block;text-decoration:none;color:var(--bone);background:var(--panel);border:1px solid var(--line);border-left:4px solid var(--sun);border-radius:12px;padding:14px 16px;margin-bottom:10px}
+.proj.quiet{border-left-color:var(--line)}
+.proj .n{font-family:var(--display);font-weight:900;font-size:24px;letter-spacing:.02em;line-height:1.1}
+.proj p{margin:4px 0 0;font-size:14px;color:var(--dust)}
+.proj p.g{color:var(--bone)}
+.phead{background:var(--panel);border:1px solid var(--line);border-left:4px solid var(--sun);border-radius:12px;padding:16px 18px;display:flex;flex-direction:column;gap:8px;margin-bottom:6px}
+.phead h1{font-family:var(--display);font-weight:900;font-size:34px;line-height:1.05;margin:0;overflow-wrap:anywhere}
+.phead p{margin:0;font-size:14px;color:var(--dust);overflow-wrap:anywhere}
+.phead p.g{font-size:16px;color:var(--bone)}
+.phead .pwhen{font-family:var(--display);font-weight:700;font-size:16px;letter-spacing:.06em;text-transform:uppercase;color:var(--sun)}
+.tl{display:grid;grid-template-columns:62px 1fr;gap:10px;padding:9px 0;border-top:1px solid var(--line);font-size:14px}
+.tl:last-child{border-bottom:1px solid var(--line)}
+.tl .d{color:var(--dust);font-variant-numeric:tabular-nums}
+.tl small{display:block;color:var(--dust);font-size:12px;margin-top:2px}
+.tl.done .t{color:var(--sage)}
+.lc{font-family:var(--body);font-weight:400;font-size:12px;color:var(--dust);letter-spacing:0}
 
 .sheet{position:fixed;left:0;right:0;bottom:64px;display:flex;justify-content:center;padding:0 12px;z-index:5}
 .sheet>div{width:100%;max-width:536px;background:var(--panel);border:1px solid var(--dust);border-radius:14px;padding:16px;box-shadow:0 10px 40px rgba(0,0,0,.6);display:flex;flex-direction:column;gap:12px}
@@ -186,7 +205,7 @@ nav.tabs a[aria-current="page"]{color:var(--bone);border-top-color:var(--sun)}
 <nav class="tabs" aria-label="Views"><div>
   <a href="#today" data-tab="today">Today</a>
   <a href="#all" data-tab="all">All</a>
-  <a href="#tags" data-tab="tags">Tags</a>
+  <a href="#tags" data-tab="tags">Projects</a>
   <a href="#dir" data-tab="dir">Directory</a>
   <a href="#add" data-tab="add">Add</a>
 </div></nav>
@@ -208,7 +227,10 @@ var RTYPES=["Band","Venue","Studio","Festival","Label","Booking","Promoter","Med
 var S={authNeeded:false,tagDefs:[],entries:[],resources:[],loadedAt:null,problem:null,busy:false,extra:false,
        filter:{status:"Open",owner:"All",tag:""},
        dir:{type:"",state:"",tag:"",q:""},
-       form:{what:"",type:"Task",owner:"Chris",deadline:"",tags:"",status:"Open"}};
+       form:blankForm(),rform:blankRForm(),addMode:"entry"};
+function blankForm(){return {what:"",type:"Task",owner:"Chris",deadline:"",tags:"",status:"Open",links:[]}}
+function blankRForm(){return {title:"",type:"Venue",city:"",state:"",tags:"",link:"",contact:"",cost:"",notes:""}}
+var PSTATUS=["active","paused","done"];
 
 var $=function(id){return document.getElementById(id)};
 function esc(s){return String(s==null?"":s).replace(/[&<>"']/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]})}
@@ -305,14 +327,18 @@ async function api(path,opts){
   return r.json();
 }
 async function fetchAll(){
-  var j=await api("/values:batchGet?ranges="+encodeURIComponent("Entries!A:O")+"&ranges="+encodeURIComponent("Tags!A:F")+"&ranges="+encodeURIComponent("Resources!A:P"));
+  var j=await api("/values:batchGet?ranges="+encodeURIComponent("Entries!A:O")+"&ranges="+encodeURIComponent("Tags!A:J")+"&ranges="+encodeURIComponent("Resources!A:P"));
   var vr=j.valueRanges||[];
   return {rows:(vr[0]&&vr[0].values)||[],tagRows:(vr[1]&&vr[1].values)||[],resRows:(vr[2]&&vr[2].values)||[]};
 }
-// Tags tab: A Tag, B Description, C Added, D Parent, E Kind, F Related
+// Tags tab: A Tag, B Description, C Added, D Parent, E Kind, F Related,
+// and for project tags: G Goal, H From, I To (yyyy-mm-dd), J Status (active / paused / done)
 function parseTags(rows){
-  var out=[];for(var i=1;i<rows.length;i++){var r=rows[i]||[];var t=normTag(r[0]);if(t)out.push({name:t,desc:r[1]||"",row:i+1,parent:normTag(r[3]),kind:String(r[4]||"").trim().toLowerCase()})}return out;
+  var out=[];for(var i=1;i<rows.length;i++){var r=rows[i]||[];var t=normTag(r[0]);if(t)out.push({name:t,desc:r[1]||"",row:i+1,parent:normTag(r[3]),kind:String(r[4]||"").trim().toLowerCase(),
+    goal:r[6]||"",from:isoOf(r[7]),to:isoOf(r[8]),pstatus:String(r[9]||"").trim().toLowerCase()})}return out;
 }
+// Text written to the sheet must not start like a formula.
+function safe(s){s=String(s==null?"":s);return /^[=+\-@]/.test(s)?"'"+s:s}
 function normTag(s){return String(s||"").trim().toLowerCase().replace(/\s+/g,"-").replace(/,/g,"")}
 function put(range,values){return api("/values/"+encodeURIComponent(range)+"?valueInputOption=USER_ENTERED",{method:"PUT",body:JSON.stringify({values:values})})}
 function explain(e){
@@ -333,12 +359,25 @@ function queue(){return store("bd.queue")||[]}
 function setQueue(q){store("bd.queue",q)}
 function tagList(s){return String(s||"").split(",").map(function(t){return t.trim().toLowerCase()}).filter(Boolean)}
 function applyLocal(op){
-  if(op.kind==="tag"){if(!S.tagDefs.some(function(t){return t.name===op.name}))S.tagDefs.push({name:op.name,desc:op.desc||"",row:1e6});return}
+  if(op.kind==="tag"){if(!S.tagDefs.some(function(t){return t.name===op.name}))S.tagDefs.push({name:op.name,desc:op.desc||"",row:1e6,parent:"",kind:op.tkind||"",goal:"",from:"",to:"",pstatus:""});return}
+  if(op.kind==="pmeta"){var td=tagDef(op.name);if(td){td.desc=op.f.desc;td.goal=op.f.goal;td.from=op.f.from;td.to=op.f.to;td.pstatus=op.f.status}return}
+  if(op.kind==="radd"){
+    if(findRes(op.tmp)) return;
+    var rf=op.f;
+    S.resources.push({row:1e6,id:op.tmp,title:rf.title.trim(),type:rf.type,status:"valid",city:rf.city||"",state:String(rf.state||"").toUpperCase(),tags:tagList(rf.tags),
+      link:rf.link||"",contact:rf.contact||"",cost:rf.cost||"",notes:rf.notes||"",related:[],parent:"",source:"App",batch:"",added:iso(new Date(op.at))});
+    return;
+  }
+  if(op.kind==="redit"){
+    var rr=findRes(op.id);if(!rr)return;var g=op.f;
+    rr.title=g.title.trim();rr.type=g.type;rr.city=g.city||"";rr.state=String(g.state||"").toUpperCase();rr.tags=tagList(g.tags);rr.link=g.link||"";rr.contact=g.contact||"";rr.cost=g.cost||"";rr.notes=g.notes||"";
+    return;
+  }
   if(op.kind==="add"){
     if(find(op.tmp)) return;
     var f=op.f;
     S.entries.push({row:1e6+op.n,id:op.tmp,title:f.what.trim(),type:f.type,tags:tagList(f.tags),owner:f.owner,deadline:f.deadline?dlText(f.deadline):"",
-      status:f.status,goal:"",notes:f.followOf?"Follow-up to "+f.followOf+": "+(f.followTitle||""):"",source:"App",added:disp(new Date(op.at)),closed:"",days:f.deadline?daysFrom(f.deadline):null,links:[],start:f.start||""});
+      status:f.status,goal:"",notes:f.followOf?"Follow-up to "+f.followOf+": "+(f.followTitle||""):"",source:"App",added:disp(new Date(op.at)),closed:"",days:f.deadline?daysFrom(f.deadline):null,links:(f.links||[]).slice(),start:f.start||""});
     return;
   }
   var e=find(op.id);if(!e) return;
@@ -348,13 +387,39 @@ function applyLocal(op){
   if(op.kind==="title"){e.title=op.title;return}
   if(op.kind==="deadline"){e.deadline=op.value?dlText(op.value):"";e.days=op.value?daysFrom(op.value):null}
   if(op.kind==="start"){e.start=op.value||""}
+  if(op.kind==="links"){e.links=op.links.slice()}
 }
+// Resource IDs in a link list, with ones created on this device swapped for their new R-### IDs.
+function mapLinks(ids,ctx){return ids.map(function(x){return ctx.rtmp[x]||x}).filter(function(x){return !/^NEWR-/.test(x)})}
 async function sendOp(op,ctx){
   if(op.kind==="tag"){
     if(ctx.tagNames.indexOf(op.name)>=0) return;
     var tr=++ctx.tagMaxRow;
-    await put("Tags!A"+tr+":C"+tr,[[op.name,op.desc||"",iso(new Date(op.at))]]);
-    ctx.tagNames.push(op.name);return;
+    await put("Tags!A"+tr+":E"+tr,[[op.name,safe(op.desc||""),iso(new Date(op.at)),"",op.tkind||""]]);
+    ctx.tagNames.push(op.name);ctx.tagRow[op.name]=tr;return;
+  }
+  if(op.kind==="pmeta"){
+    var pr=ctx.tagRow[op.name];if(!pr) throw {code:"gone",message:"The tag "+op.name+" is no longer in the tracker."};
+    var pf=op.f;
+    await put("Tags!B"+pr,[[safe(pf.desc||"")]]);
+    await put("Tags!G"+pr+":J"+pr,[[safe(pf.goal||""),pf.from||"",pf.to||"",pf.status||""]]);
+    return;
+  }
+  if(op.kind==="radd"){
+    var rf=op.f,rt=rf.title.trim(),rday=iso(new Date(op.at));
+    var rdup=ctx.res.filter(function(x){return x.source==="App"&&x.added===rday&&x.title.toLowerCase()===rt.toLowerCase()})[0];
+    if(rdup){ctx.rtmp[op.tmp]=rdup.id;return}
+    var rn=++ctx.maxR,rid="R-"+(rn<10?"00"+rn:rn<100?"0"+rn:rn),rrow=++ctx.maxRRow;
+    await put("Resources!A"+rrow+":P"+rrow,[[rid,safe(rt),rf.type,"valid",safe(rf.city||""),String(rf.state||"").toUpperCase(),tagList(rf.tags).join(", "),rf.link||"",safe(rf.contact||""),safe(rf.cost||""),safe(rf.notes||""),"","","App","",rday]]);
+    ctx.rtmp[op.tmp]=rid;ctx.rrows[rid]=rrow;return;
+  }
+  if(op.kind==="redit"){
+    var eid=ctx.rtmp[op.id]||op.id,er=ctx.rrows[eid];
+    if(!er) throw {code:"gone",message:eid+" is no longer in the directory."};
+    var g=op.f;
+    // B Title, C Type, D Status (left alone), E City ... K Notes
+    await put("Resources!B"+er+":K"+er,[[safe(g.title.trim()),g.type,null,safe(g.city||""),String(g.state||"").toUpperCase(),tagList(g.tags).join(", "),g.link||"",safe(g.contact||""),safe(g.cost||""),safe(g.notes||"")]]);
+    return;
   }
   if(op.kind==="add"){
     var f=op.f,title=f.what.trim(),day=disp(new Date(op.at));
@@ -363,6 +428,7 @@ async function sendOp(op,ctx){
     var n=++ctx.maxN,id="E-"+(n<10?"00"+n:n<100?"0"+n:n),row=++ctx.maxRow;
     await put("Entries!A"+row+":L"+row,[[id,title,f.type,tagList(f.tags).join(", "),f.owner,f.deadline||"",f.status,"",f.followOf?"Follow-up to "+f.followOf+": "+(f.followTitle||""):"","App",iso(new Date(op.at)),""]]);
     if(f.start) await put("Entries!O"+row,[[f.start]]);
+    var fl=mapLinks(f.links||[],ctx);if(fl.length) await put("Entries!N"+row,[[fl.join(", ")]]);
     ctx.tmp[op.tmp]=id;ctx.rows[id]=row;return;
   }
   var id2=ctx.tmp[op.id]||op.id,r=ctx.rows[id2];
@@ -377,6 +443,7 @@ async function sendOp(op,ctx){
   else if(op.kind==="deadline") await put("Entries!F"+r,[[op.value||""]]);
   else if(op.kind==="start") await put("Entries!O"+r,[[op.value||""]]);
   else if(op.kind==="tags") await put("Entries!D"+r,[[op.tags.join(", ")]]);
+  else if(op.kind==="links") await put("Entries!N"+r,[[mapLinks(op.links,ctx).join(", ")]]);
   else if(op.kind==="title"){var tt=op.title;if(/^[=+\-@]/.test(tt))tt="'"+tt;await put("Entries!B"+r,[[tt]])}
 }
 async function sync(interactive){
@@ -391,13 +458,18 @@ async function sync(interactive){
     var got=await fetchAll(),rows=got.rows,q=queue();
     if(q.length){
       var tdefs=parseTags(got.tagRows);
-      var list=parse(rows),ctx={list:list,rows:{},tmp:{},notes:{},maxN:0,maxRow:1,tagNames:tdefs.map(function(t){return t.name}),tagMaxRow:tdefs.reduce(function(m,t){return Math.max(m,t.row)},Math.max(1,got.tagRows.length))};
+      var list=parse(rows),ctx={list:list,rows:{},tmp:{},notes:{},maxN:0,maxRow:1,tagNames:tdefs.map(function(t){return t.name}),tagRow:{},tagMaxRow:tdefs.reduce(function(m,t){return Math.max(m,t.row)},Math.max(1,got.tagRows.length)),
+        res:parseResources(got.resRows),rrows:{},rtmp:{},maxR:0,maxRRow:Math.max(1,got.resRows.length)};
+      tdefs.forEach(function(t){ctx.tagRow[t.name]=t.row});
+      ctx.res.forEach(function(x){ctx.rrows[x.id.toUpperCase()]=x.row;var m=/^R-(\d+)$/i.exec(x.id);if(m)ctx.maxR=Math.max(ctx.maxR,+m[1]);ctx.maxRRow=Math.max(ctx.maxRRow,x.row)});
       list.forEach(function(e){ctx.rows[e.id]=e.row;var m=/^E-(\d+)$/.exec(e.id);if(m)ctx.maxN=Math.max(ctx.maxN,+m[1]);ctx.maxRow=Math.max(ctx.maxRow,e.row)});
       while(q.length){
         try{await sendOp(q[0],ctx)}catch(e){if(e.code==="auth"||e.code==="offline")throw e;lost++;S.problem=e.code==="gone"?{t:"One change could not be saved.",d:e.message}:explain(e)}
         q.shift();setQueue(q);
       }
       got=await fetchAll();rows=got.rows;
+      // A resource added on this device now has its R-### ID: keep its page open under the new ID.
+      var cr=route()==="res"?currentRes():"";if(cr&&ctx.rtmp[cr.toUpperCase()])history.replaceState(null,"","#res-"+encodeURIComponent(ctx.rtmp[cr.toUpperCase()]));
     }
     S.entries=parse(rows);S.tagDefs=parseTags(got.tagRows);S.resources=parseResources(got.resRows);S.loadedAt=now();S.authNeeded=false;fresh=true;if(!lost)S.problem=null;
     store("bf-cache",{entries:S.entries,tagDefs:S.tagDefs,resources:S.resources,at:S.loadedAt.getTime()});
@@ -443,6 +515,31 @@ function tagEditor(e,scope){
 function setStart(e,val){return act(val?"Start date saved":"Start date cleared",{kind:"start",id:e.id,value:val||""})}
 function setDeadline(e,val){return act(val?"Deadline saved":"Deadline cleared",{kind:"deadline",id:e.id,value:val||""})}
 function addEntry(f){var t=Date.now();return act("Added",{kind:"add",f:f,tmp:"new-"+t,n:t%100000,at:t})}
+function addResource(f){var t=Date.now(),tmp="NEWR-"+t;act("Added to the directory",{kind:"radd",f:f,tmp:tmp,at:t});return tmp}
+function setLinks(e,links,label,scope){if(scope)S.openRow=scope+":"+e.id;return act(label,{kind:"links",id:e.id,links:links})}
+// Picker values look like "Valley Bar (R-186)"; a plain name also works if it matches one resource.
+function resolveRes(v){
+  v=String(v||"").trim();if(!v)return null;
+  var m=/\(((?:R|NEWR)-[\w]+)\)\s*$/i.exec(v);if(m){var r=findRes(m[1]);if(r)return r}
+  var lo=v.toLowerCase(),live=liveRes();
+  var ex=live.filter(function(x){return x.title.toLowerCase()===lo||x.id.toLowerCase()===lo});if(ex.length===1)return ex[0];
+  var part=live.filter(function(x){return x.title.toLowerCase().indexOf(lo)>=0});return part.length===1?part[0]:null;
+}
+function resolveEntry(v){
+  v=String(v||"").trim();if(!v)return null;
+  var m=/\(((?:E-\d+)|(?:new-\d+))\)\s*$/i.exec(v);if(m){var e=find(m[1]);if(e)return e}
+  var lo=v.toLowerCase(),c=S.entries.filter(function(x){return x.status!=="Dropped"&&(x.title.toLowerCase()===lo||x.id.toLowerCase()===lo)});
+  if(c.length===1)return c[0];
+  c=S.entries.filter(function(x){return x.status!=="Dropped"&&x.title.toLowerCase().indexOf(lo)>=0});return c.length===1?c[0]:null;
+}
+function resOption(r){return '<option value="'+esc(r.title+" ("+r.id+")")+'">'+esc([r.type,place(r)].filter(Boolean).join(" · "))+'</option>'}
+function linkEditor(e,scope){
+  var k=scope+"-"+esc(e.id);
+  return '<div class="tagedit"><span class="foot">Links: who and where this is about</span><div class="chipset">'+
+    (e.links.length?e.links.map(function(id){return '<span class="chip rm res"><a href="#res-'+encodeURIComponent(id)+'" style="text-decoration:none">'+esc((findRes(id)||{title:id}).title)+'</a><button type="button" data-act="unlink" data-scope="'+scope+'" data-id="'+esc(e.id)+'" data-v="'+esc(id)+'" aria-label="Unlink">×</button></span>'}).join(""):'<span class="foot">None yet</span>')+
+    '</div><form class="logf linkadd" data-id="'+esc(e.id)+'" data-scope="'+scope+'"><label for="lk-'+k+'" style="position:absolute;left:-9999px">Link a resource</label>'+
+    '<input type="text" id="lk-'+k+'" list="allres" placeholder="Link a venue, band, person..." autocomplete="off" enterkeyhint="done"><button class="btn small" type="submit">Link</button></form></div>';
+}
 
 /* ---------- derived ---------- */
 function byUrgency(a,b){var x=a.days==null?1e9:a.days,y=b.days==null?1e9:b.days;return x-y||a.row-b.row}
@@ -539,7 +636,7 @@ function entryBody(e,scope){
       if(S.renaming===e.id) rn='<form class="logf renamef" data-id="'+esc(e.id)+'"><label for="rn-'+k+'" style="position:absolute;left:-9999px">New title</label><input type="text" id="rn-'+k+'" value="'+esc(e.title)+'" autocomplete="off" enterkeyhint="done"><button class="btn small" type="submit">Save</button><button class="btn small" data-act="rename-cancel" type="button">Cancel</button></form>';
       else b+='<button class="btn small" data-act="rename" data-id="'+e.id+'" type="button">Rename</button>';
     }
-    return '<div class="body">'+rn+(e.links&&e.links.length?'<div class="linked"><span class="foot">Links</span>'+e.links.map(resChip).join("")+'</div>':'')+(e.notes?'<div class="notes">'+linkify(e.notes)+'</div>':'')+(closed?'':logForm(e.id,scope))+tagEditor(e,scope)+dl+'<div class="btns">'+b+'</div></div>';
+    return '<div class="body">'+rn+(e.notes?'<div class="notes">'+linkify(e.notes)+'</div>':'')+(closed?'':logForm(e.id,scope))+linkEditor(e,scope)+tagEditor(e,scope)+dl+'<div class="btns">'+b+'</div></div>';
 }
 function isOpen(scope,id){return S.openRow===scope+":"+id}
 function entryRow(e){
@@ -592,11 +689,109 @@ function tagRowHtml(s){
   return '<a class="tagrow'+(s.active?"":" quiet")+'" href="#tag-'+encodeURIComponent(s.name)+'"><span class="n">'+esc(s.name)+'<small>'+esc(countLine(s))+'</small></span>'+
     (w?'<span class="chip '+w.cls+'">'+esc(w.txt)+'</span>':(d&&d.kind==="project"?'<span class="chip">project</span>':''))+'</a>';
 }
+/* ---------- projects ---------- */
+function isProject(t){var d=tagDef(t);return !!(d&&d.kind==="project")}
+function pDate(s){var d=fromIso(s);return dlText(s)+(d.getFullYear()!==now().getFullYear()?"/"+String(d.getFullYear()).slice(2):"")}
+function pWhen(d){
+  if(!d.from) return "";
+  var a=daysFrom(d.from),b=d.to?daysFrom(d.to):a,span=pDate(d.from)+(d.to&&d.to!==d.from?" – "+pDate(d.to):"");
+  if(d.pstatus==="done") return span;
+  if(a>0) return span+" · "+a+(a===1?" day out":" days out");
+  if(b>=0) return span+" · happening now";
+  return span+" · past";
+}
+function projEntries(t){var fam=tagFamily(t);return S.entries.filter(function(e){return hasAny(e.tags,fam)})}
+function isWaiting(e){return e.status==="Waiting"||(e.status==="Open"&&e.owner!=="Chris"&&e.type!=="Event")}
+// Everyone and everywhere in a project: resources tagged with it, plus anything its entries link to.
+function projResources(t){
+  var fam=tagFamily(t),m={};
+  liveRes().forEach(function(r){if(hasAny(r.tags,fam))m[r.id.toUpperCase()]=r});
+  projEntries(t).forEach(function(e){if(e.status==="Dropped")return;e.links.forEach(function(id){var r=findRes(id);if(r&&r.status!=="invalid")m[r.id.toUpperCase()]=r})});
+  return Object.keys(m).map(function(k){return m[k]});
+}
+// Dated history: every "M.DD - note" progress line and every Done, newest first.
+function projHistory(list){
+  var out=[],today=now();today.setHours(0,0,0,0);
+  list.forEach(function(e){
+    String(e.notes||"").split("\n").forEach(function(l){
+      var m=/^(\d{1,2})\.(\d{1,2}) - (.*)$/.exec(l.trim());if(!m)return;
+      var d=new Date(today.getFullYear(),+m[1]-1,+m[2]);if(d>today)d.setFullYear(d.getFullYear()-1);
+      out.push({d:d,text:m[3],e:e,done:false});
+    });
+    if(e.status==="Done"&&e.closed){var c=/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/.exec(e.closed);if(c){var y=+c[3];if(y<100)y+=2000;out.push({d:new Date(y,+c[1]-1,+c[2]),text:"Done: "+e.title,e:e,done:true})}}
+  });
+  return out.sort(function(a,b){return b.d-a.d||(a.done?-1:1)});
+}
+function projCounts(t){
+  var l=projEntries(t),open=l.filter(function(e){return e.status==="Open"&&e.type!=="Event"&&!isWaiting(e)}).length,w=l.filter(isWaiting).length,res=projResources(t).length;
+  var p=[];if(open)p.push(open+" to do");if(w)p.push(w+" waiting");if(res)p.push(res+" people and places");
+  return p.join(" · ")||"Nothing here yet";
+}
+function projCard(d){
+  var g=d.goal||d.desc;
+  return '<a class="proj'+(d.pstatus==="done"||d.pstatus==="paused"?" quiet":"")+'" href="#tag-'+encodeURIComponent(d.name)+'"><span class="n">'+esc(d.name)+'</span>'+
+    (pWhen(d)?'<p style="color:var(--sun)">'+esc(pWhen(d))+(d.pstatus&&d.pstatus!=="active"?" · "+esc(d.pstatus):"")+'</p>':(d.pstatus&&d.pstatus!=="active"?'<p>'+esc(d.pstatus)+'</p>':''))+
+    (g?'<p class="g">'+esc(g.length>140?g.slice(0,137)+"...":g)+'</p>':'')+'<p>'+esc(projCounts(d.name))+'</p></a>';
+}
+function projSort(a,b){var x=a.from||"9999",y=b.from||"9999";return x<y?-1:x>y?1:a.name.localeCompare(b.name)}
+function readPForm(){return {desc:$("pf-desc").value.trim(),goal:$("pf-goal").value.trim(),from:$("pf-from").value,to:$("pf-to").value,status:$("pf-status").value}}
+function viewProject(t){
+  var d=tagDef(t),list=projEntries(t);
+  if(S.editProj===t){
+    var f=S.pmetaF||{desc:d.desc,goal:d.goal,from:d.from,to:d.to,status:d.pstatus||"active"};
+    return '<section><div class="taghead"><a class="back" href="#tag-'+encodeURIComponent(t)+'" data-act="pedit-cancel">Cancel</a><h1>'+esc(t)+'</h1></div>'+
+      '<form class="add" id="pform" data-v="'+esc(t)+'" autocomplete="off">'+
+      '<div class="field"><label for="pf-goal">Goal: what counts as success</label><input type="text" id="pf-goal" value="'+esc(f.goal)+'" placeholder="Three shows, Fri-Sun, with bands we like on each bill"></div>'+
+      '<div class="two"><div class="field"><label for="pf-from">From</label><input type="date" id="pf-from" value="'+esc(f.from)+'"></div><div class="field"><label for="pf-to">To</label><input type="date" id="pf-to" value="'+esc(f.to)+'"></div></div>'+
+      '<div class="field"><label for="pf-status">Status</label><select id="pf-status">'+PSTATUS.map(function(s){return '<option'+((f.status||"active")===s?" selected":"")+'>'+s+'</option>'}).join("")+'</select></div>'+
+      '<div class="field"><label for="pf-desc">Description and plan</label><textarea id="pf-desc" style="min-height:140px">'+esc(f.desc)+'</textarea></div>'+
+      '<div class="btns"><button class="btn primary" type="submit">Save</button><button class="btn" type="button" data-act="pedit-cancel">Cancel</button></div></form></section>';
+  }
+  var steps=list.filter(function(e){return e.status==="Open"&&e.type!=="Event"&&!isWaiting(e)}).sort(byUrgency);
+  var events=list.filter(function(e){return e.status==="Open"&&e.type==="Event"}).sort(byUrgency);
+  var waiting=list.filter(isWaiting).sort(byUrgency);
+  var backlog=list.filter(function(e){return e.status==="Backlog"}).sort(byUrgency);
+  var closed=list.filter(function(e){return e.status==="Done"||e.status==="Dropped"}).sort(function(a,b){return b.row-a.row});
+  var res=projResources(t),hist=projHistory(list.filter(function(e){return e.status!=="Dropped"}));
+  var kids=tagFamily(t).slice(1);
+  var h='<section><div class="taghead" style="margin-bottom:10px"><a class="back" href="#tags">Projects</a></div>'+
+    '<div class="phead"><h1>'+esc(t)+'</h1>'+
+    (pWhen(d)?'<div class="pwhen">'+esc(pWhen(d))+'</div>':'')+
+    (d.goal?'<p class="g">'+esc(d.goal)+'</p>':'<p>No goal set yet.</p>')+
+    (d.desc?'<p style="white-space:pre-line">'+linkify(d.desc)+'</p>':'')+
+    (kids.length?'<p>Includes '+kids.map(tagLink).join(" ")+'</p>':'')+
+    '<div class="meta">'+(d.pstatus&&d.pstatus!=="active"?'<span class="chip">'+esc(d.pstatus)+'</span>':'<span class="chip when">active</span>')+'<span class="chip">'+esc(projCounts(t))+'</span></div>'+
+    '<div class="btns"><button class="btn small" data-act="pedit" data-v="'+esc(t)+'" type="button">Edit</button><button class="btn small" data-act="addtag" data-v="'+esc(t)+'" type="button">Add a step</button><button class="btn small" data-act="addrestag" data-v="'+esc(t)+'" type="button">Add a resource</button></div></div>';
+  h+='<div class="group"><h2>Next steps</h2>'+(steps.length?steps.map(entryRow).join(""):'<p class="empty">No open steps. Add one, or check the backlog below.</p>')+'</div>';
+  if(events.length) h+='<div class="group"><h2>Shows and events</h2>'+events.map(entryRow).join("")+'</div>';
+  if(waiting.length) h+='<div class="group"><h2>Waiting on</h2>'+waiting.map(entryRow).join("")+'</div>';
+  h+='<div class="group"><h2>People and places · '+res.length+'</h2>';
+  if(res.length){
+    var types=RTYPES.concat(res.map(function(r){return r.type}).filter(function(x){return RTYPES.indexOf(x)<0}));
+    types.filter(function(x,i){return types.indexOf(x)===i}).forEach(function(ty){
+      var part=res.filter(function(r){return r.type===ty}).sort(byTitle);
+      if(part.length) h+='<div class="kind">'+esc(ty||"Other")+'</div>'+part.map(function(r){var lc=lastContact(r.id);return resRow(r,lc?"last contact "+lc.toLocaleDateString(undefined,{month:"short",day:"numeric"}):"")}).join("");
+    });
+  }else h+='<p class="empty">Nothing linked yet. Link venues and bands from a step, or add a resource with this tag.</p>';
+  h+='<form class="logf restag" data-v="'+esc(t)+'" style="margin-top:12px"><label for="rt-'+esc(t)+'" style="position:absolute;left:-9999px">Add someone from the directory</label><input type="text" id="rt-'+esc(t)+'" list="allres" placeholder="Add from the directory..." autocomplete="off" enterkeyhint="done"><button class="btn small" type="submit">Add</button></form></div>';
+  var lim=S.allHist?hist.length:12;
+  h+='<div class="group"><h2>Done so far</h2>'+(hist.length?hist.slice(0,lim).map(function(x){return '<div class="tl'+(x.done?" done":"")+'"><span class="d">'+esc(x.d.toLocaleDateString(undefined,{month:"short",day:"numeric"}))+'</span><span class="t">'+linkify(x.text)+(x.done?'':'<small>'+esc(x.e.title)+'</small>')+'</span></div>'}).join("")+
+    (hist.length>lim||S.allHist?'<button class="f" type="button" data-act="allhist" style="margin-top:8px">'+(S.allHist?"Show recent only":"Show all "+hist.length)+'</button>':''):'<p class="empty">Nothing logged yet. Progress notes on this project\'s entries show up here.</p>')+'</div>';
+  if(backlog.length) h+='<details class="more"><summary>Backlog ('+backlog.length+')</summary>'+backlog.map(entryRow).join("")+'</details>';
+  if(closed.length) h+='<details class="more"><summary>Closed entries ('+closed.length+')</summary>'+closed.map(entryRow).join("")+'</details>';
+  return h+'</section>';
+}
 function viewTags(){
-  var list=tagStats();
-  var h='<section><h2>Tags</h2>'+
+  var list=tagStats().filter(function(s){return !isProject(s.name)});
+  var projs=projectTags().slice().sort(projSort);
+  var live=projs.filter(function(d){return d.pstatus!=="done"&&d.pstatus!=="paused"}),parked=projs.filter(function(d){return d.pstatus==="done"||d.pstatus==="paused"});
+  var h='<section><h2>Projects</h2>'+live.map(projCard).join("")+(live.length?'':'<p class="empty">No active projects.</p>')+
+    (parked.length?'<details class="more" style="margin-top:6px"><summary>Paused or finished ('+parked.length+')</summary>'+parked.map(projCard).join("")+'</details>':'')+
+    '<form class="logf" id="projform" autocomplete="off" style="margin:10px 0 28px"><label for="newproj" style="position:absolute;left:-9999px">New project</label>'+
+    '<input type="text" id="newproj" placeholder="New project, e.g. pnw-summer" enterkeyhint="done"><button class="btn small" type="submit">Add project</button></form>'+
+    '<h2>Tags</h2>'+
     '<form class="logf" id="tagform" autocomplete="off" style="margin-bottom:16px"><label for="newtag" style="position:absolute;left:-9999px">New tag</label>'+
-    '<input type="text" id="newtag" placeholder="New tag, e.g. az-nv-march" enterkeyhint="done"><button class="btn small" type="submit">Add tag</button></form>';
+    '<input type="text" id="newtag" placeholder="New tag, e.g. merch" enterkeyhint="done"><button class="btn small" type="submit">Add tag</button></form>';
   if(!list.length) return h+'<p class="empty">No tags yet.</p></section>';
   // Tags on entries come first, as before. The rest are grouped by Kind below, folded away.
   var used=list.filter(function(s){return s.active||s.backlog||s.closed});
@@ -614,7 +809,9 @@ function viewTags(){
 }
 function currentTag(){try{return decodeURIComponent((location.hash||"").replace(/^#tag-/,""))}catch(e){return ""}}
 function viewTag(){
-  var t=currentTag(),fam=tagFamily(t),d=tagDef(t);
+  var t=currentTag();
+  if(isProject(t)) return viewProject(t);
+  var fam=tagFamily(t),d=tagDef(t);
   var list=S.entries.filter(function(e){return hasAny(e.tags,fam)});
   var res=liveRes().filter(function(r){return hasAny(r.tags,fam)});
   var s=tagStats().filter(function(x){return x.name===t})[0];
@@ -640,9 +837,9 @@ function viewTag(){
 function byTitle(a,b){return a.title.localeCompare(b.title)}
 function findRes(id){id=String(id||"").toUpperCase();for(var i=0;i<S.resources.length;i++)if(S.resources[i].id.toUpperCase()===id)return S.resources[i];return null}
 function place(r){return [r.city,r.state].filter(Boolean).join(", ")}
-function resRow(r){
+function resRow(r,extra){
   var sub=[r.type,place(r)].filter(Boolean).join(" · ");
-  return '<a class="tagrow" href="#res-'+encodeURIComponent(r.id)+'"><span class="n">'+esc(r.title)+'<small>'+esc(sub)+(r.tags.length?' · '+esc(r.tags.join(", ")):'')+'</small></span>'+
+  return '<a class="tagrow" href="#res-'+encodeURIComponent(r.id)+'"><span class="n">'+esc(r.title)+'<small>'+esc(sub)+(r.tags.length?' · '+esc(r.tags.join(", ")):'')+(extra?' · '+esc(extra):'')+'</small></span>'+
     (r.status==="review"?'<span class="chip review">review</span>':'')+'</a>';
 }
 function resChip(id){var r=findRes(id);return '<a class="chip res" href="#res-'+encodeURIComponent(id)+'">'+esc(r?r.title:id)+'</a>'}
@@ -685,7 +882,7 @@ function viewDir(){
   var f=S.dir,live=liveRes(),cnt={},states={},tags={};
   live.forEach(function(r){cnt[r.type]=(cnt[r.type]||0)+1;if(r.state)states[r.state]=1;r.tags.forEach(function(t){tags[t]=1})});
   var rev=live.filter(function(r){return r.status==="review"}).length;
-  var h='<section><h2>Directory</h2>'+
+  var h='<section><div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px"><h2>Directory</h2><button class="btn small" data-act="addres" type="button">Add to directory</button></div>'+
     (rev?'<p class="foot" style="margin:0 0 12px">'+rev+' added in bulk and marked <span class="chip review">review</span>. Keep or drop comes in the next update.</p>':'')+
     '<label for="dirq" style="position:absolute;left:-9999px">Search the directory</label><input class="search" type="search" id="dirq" placeholder="Search names, cities, notes" value="'+esc(f.q)+'" autocomplete="off">'+
     '<div class="filters"><select class="f" id="dtype" aria-label="Type"><option value="">Any type</option>'+RTYPES.filter(function(t){return cnt[t]}).map(function(t){return '<option value="'+t+'"'+(f.type===t?" selected":"")+'>'+t+' ('+cnt[t]+')</option>'}).join("")+'</select>'+
@@ -695,12 +892,43 @@ function viewDir(){
     '<p class="foot" style="margin-top:14px"><a href="'+SHEET_URL+'" target="_blank" rel="noopener">Open the sheet</a></p></section>';
   return h;
 }
+// One form for new and existing resources. mode: "add" (Add tab) or "edit" (resource page).
+function resForm(f,mode){
+  var tset={};allTagNames().forEach(function(t){tset[t]=1});
+  var cur=tagList(f.tags),sugg=S.tagDefs.filter(function(d){return d.kind==="project"||d.kind==="region"||d.kind==="genre"}).map(function(d){return d.name});
+  return '<form class="add" id="resform" data-mode="'+mode+'" autocomplete="off">'+
+    '<div class="field"><label for="rf-title">Name</label><input type="text" id="rf-title" value="'+esc(f.title)+'" placeholder="Valley Bar" required></div>'+
+    '<div class="field"><label for="rf-type">Type</label><select id="rf-type">'+RTYPES.map(function(t){return '<option'+(f.type===t?" selected":"")+'>'+t+'</option>'}).join("")+'</select></div>'+
+    '<div class="two"><div class="field"><label for="rf-city">City</label><input type="text" id="rf-city" value="'+esc(f.city)+'" placeholder="Phoenix"></div>'+
+    '<div class="field"><label for="rf-state">State</label><input type="text" id="rf-state" value="'+esc(f.state)+'" placeholder="AZ" maxlength="2" style="text-transform:uppercase"></div></div>'+
+    '<div class="field"><label for="rf-link">Link (website, Bandcamp or Instagram)</label><input type="text" id="rf-link" value="'+esc(f.link)+'" placeholder="https://" inputmode="url"></div>'+
+    '<div class="field"><label for="rf-contact">Contact (email, phone, booking form, or who to ask)</label><input type="text" id="rf-contact" value="'+esc(f.contact)+'"></div>'+
+    '<div class="field"><label for="rf-cost">Cost (optional)</label><input type="text" id="rf-cost" value="'+esc(f.cost)+'" placeholder="$200 flat"></div>'+
+    '<div class="field"><label for="rf-tags">Tags (comma-separated)</label><input type="text" id="rf-tags" value="'+esc(f.tags)+'" placeholder="desert-southwest, stoner-rock">'+
+    '<div class="filters" style="margin-top:6px">'+sugg.sort().map(function(t){return '<button class="f" type="button" data-act="rtag" data-v="'+esc(t)+'" aria-pressed="'+(cur.indexOf(t)>=0)+'">'+esc(t)+'</button>'}).join("")+'</div></div>'+
+    '<div class="field"><label for="rf-notes">Notes</label><textarea id="rf-notes" placeholder="Who you talked to, what they said">'+esc(f.notes)+'</textarea></div>'+
+    '<div class="btns"><button class="btn primary" type="submit">'+(mode==="edit"?"Save changes":"Add to directory")+'</button>'+(mode==="edit"?'<button class="btn" type="button" data-act="redit-cancel">Cancel</button>':'')+'</div></form>';
+}
+function readRForm(){
+  return {title:$("rf-title").value,type:$("rf-type").value,city:$("rf-city").value.trim(),state:$("rf-state").value.trim().toUpperCase(),
+    tags:tagList($("rf-tags").value).map(normTag).join(", "),link:$("rf-link").value.trim(),contact:$("rf-contact").value.trim(),cost:$("rf-cost").value.trim(),notes:$("rf-notes").value.trim()};
+}
+function rformOf(r){return {title:r.title,type:r.type,city:r.city,state:r.state,tags:r.tags.join(", "),link:r.link,contact:r.contact,cost:r.cost,notes:r.notes}}
+function projectTags(){return S.tagDefs.filter(function(d){return d.kind==="project"})}
+// Projects a resource belongs to: tagged with the project, or linked from one of its entries.
+function resProjects(r){
+  var m={},pn=projectTags().map(function(d){return d.name});
+  r.tags.forEach(function(t){if(pn.indexOf(t)>=0)m[t]=1});
+  linkedEntries(r.id).forEach(function(e){e.tags.forEach(function(t){if(pn.indexOf(t)>=0)m[t]=1})});
+  return Object.keys(m).sort();
+}
 function currentRes(){try{return decodeURIComponent((location.hash||"").replace(/^#res-/,""))}catch(e){return ""}}
 function host(u){try{return new URL(u).hostname.replace(/^www\./,"")}catch(e){return u}}
 function viewRes(){
   var r=findRes(currentRes());
   if(!r) return '<section><div class="taghead"><a class="back" href="#dir">Directory</a><h1>Not found</h1><p>'+esc(currentRes())+' is not in the directory. It may still be syncing.</p></div></section>';
-  var lc=lastContact(r.id),ents=linkedEntries(r.id).sort(byUrgency),par=r.parent?findRes(r.parent):null;
+  if(S.editRes===r.id) return '<section><div class="taghead"><a class="back" href="#res-'+encodeURIComponent(r.id)+'" data-act="redit-cancel">Cancel</a><h1>Edit '+esc(r.title)+'</h1></div>'+resForm(S.reditF||rformOf(r),"edit")+'</section>';
+  var lc=lastContact(r.id),ents=linkedEntries(r.id).sort(byUrgency),par=r.parent?findRes(r.parent):null,projs=resProjects(r);
   var kids=S.resources.filter(function(x){return x.parent&&x.parent.toUpperCase()===r.id.toUpperCase()});
   var rel=r.related.concat(S.resources.filter(function(x){return x.related.map(function(y){return y.toUpperCase()}).indexOf(r.id.toUpperCase())>=0}).map(function(x){return x.id}));
   rel=rel.filter(function(x,i){return rel.indexOf(x)===i});
@@ -712,13 +940,18 @@ function viewRes(){
   if(par) facts.push(["Part of",resChip(par.id)]);
   if(kids.length) facts.push(["Includes",'<span class="linked">'+kids.map(function(k){return resChip(k.id)}).join("")+'</span>']);
   if(rel.length) facts.push(["Related",'<span class="linked">'+rel.map(resChip).join("")+'</span>']);
+  if(projs.length) facts.push(["Projects",'<span class="linked">'+projs.map(tagLink).join("")+'</span>']);
   facts.push(["Last contact",lc?esc(lc.toLocaleDateString(undefined,{month:"short",day:"numeric",year:lc.getFullYear()!==now().getFullYear()?"numeric":undefined})):'<span style="color:var(--dust)">No logged contact yet</span>']);
   facts.push(["Source",esc([r.source,r.added].filter(Boolean).join(" · "))]);
   var h='<section><div class="taghead"><a class="back" href="#dir">Directory</a><h1>'+esc(r.title)+'</h1>'+
     '<p>'+esc([r.type,place(r)].filter(Boolean).join(" · "))+'</p>'+
-    '<div class="meta">'+(r.status==="review"?'<span class="chip review">review</span>':'')+'<span class="chip">'+esc(r.id)+'</span>'+r.tags.map(tagLink).join("")+'</div></div>'+
+    '<div class="meta">'+(r.status==="review"?'<span class="chip review">review</span>':'')+'<span class="chip">'+esc(/^NEWR-/.test(r.id)?"new":r.id)+'</span>'+r.tags.map(tagLink).join("")+'</div>'+
+    '<div class="btns"><button class="btn small" data-act="redit" data-v="'+esc(r.id)+'" type="button">Edit</button></div></div>'+
     '<dl class="facts">'+facts.map(function(f){return '<dt>'+f[0]+'</dt><dd>'+f[1]+'</dd>'}).join("")+'</dl>';
-  h+='<div class="group"><h2>Entries</h2>'+(ents.length?ents.map(entryRow).join(""):'<p class="empty">No entries link here yet.</p>')+'</div>';
+  h+='<div class="group"><h2>Entries</h2>'+(ents.length?ents.map(entryRow).join(""):'<p class="empty">No entries link here yet.</p>')+
+    '<form class="logf entlink" data-v="'+esc(r.id)+'" style="margin-top:12px"><label for="el-'+esc(r.id)+'" style="position:absolute;left:-9999px">Link an existing entry</label>'+
+    '<input type="text" id="el-'+esc(r.id)+'" list="allents" placeholder="Link an existing entry..." autocomplete="off" enterkeyhint="done"><button class="btn small" type="submit">Link</button></form>'+
+    '<div class="btns" style="margin-top:10px"><button class="btn small" data-act="addlinked" data-v="'+esc(r.id)+'" type="button">Add an entry about '+esc(r.title)+'</button></div></div>';
   return h+'</section>';
 }
 
@@ -740,10 +973,13 @@ function viewAll(){
 }
 
 function viewAdd(){
+  var sw='<div class="seg" role="group" aria-label="What to add" style="margin-bottom:18px"><button type="button" data-act="amode" data-v="entry" aria-pressed="'+(S.addMode!=="resource")+'">Entry (something to do)</button><button type="button" data-act="amode" data-v="resource" aria-pressed="'+(S.addMode==="resource")+'">Resource (venue, band, person...)</button></div>';
+  if(S.addMode==="resource") return '<section><h2>Add to the directory</h2>'+sw+resForm(S.rform,"add")+'</section>';
   var f=S.form,tags={};
+  f.links=f.links||[];
   allTagNames().forEach(function(t){tags[t]=1});
   var cur=f.tags.split(",").map(function(t){return t.trim()}).filter(Boolean);
-  return '<section><h2>'+(f.followOf?'Add a follow-up':'Add an entry')+'</h2><form class="add" id="addform" autocomplete="off">'+
+  return '<section><h2>'+(f.followOf?'Add a follow-up':'Add an entry')+'</h2>'+(f.followOf?'':sw)+'<form class="add" id="addform" autocomplete="off">'+
     (f.followOf?'<div class="followof">Follows '+esc(f.followOf)+': '+esc(f.followTitle||"")+' <button class="f" type="button" data-act="fu-clear" style="margin-left:6px">Not a follow-up</button></div>':'')+
     '<div class="field"><label for="what">What is it?</label><input type="text" id="what" value="'+esc(f.what)+'" placeholder="Ask Stork Club about load-in time" required></div>'+
     '<div class="field"><span class="lab">Where should it go?</span><div class="seg" role="group"><button type="button" data-act="fstat" data-v="Open" aria-pressed="'+(f.status==="Open")+'">Active (can show on Today)</button><button type="button" data-act="fstat" data-v="Backlog" aria-pressed="'+(f.status==="Backlog")+'">Backlog (hidden until you activate it)</button></div></div>'+
@@ -753,6 +989,9 @@ function viewAdd(){
     '<details class="more"'+(f.start?" open":"")+'><summary>Can\'t be done before a certain date?</summary><div class="field" style="margin-top:6px"><label for="start">Not before (optional)</label><input type="date" id="start" value="'+esc(f.start||"")+'"><p class="foot" style="margin:6px 0 0">Stays off Today until this date. Set it to the same day as the deadline for a one-day task, like a show-night errand.</p></div></details>'+
     '<div class="field"><label for="tags">Tags (optional, comma-separated)</label><input type="text" id="tags" value="'+esc(f.tags)+'" placeholder="bay-area-nov, merch">'+
     '<div class="filters" style="margin-top:6px">'+Object.keys(tags).sort().map(function(t){return '<button class="f" type="button" data-act="tag" data-v="'+esc(t)+'" aria-pressed="'+(cur.indexOf(t)>=0)+'">'+esc(t)+'</button>'}).join("")+'</div></div>'+
+    '<div class="field"><label for="flink">Links (optional): venues, bands, people this is about</label>'+
+    (f.links.length?'<div class="chipset" style="margin-bottom:4px">'+f.links.map(function(id){return '<span class="chip rm res"><a href="#res-'+encodeURIComponent(id)+'" style="text-decoration:none">'+esc((findRes(id)||{title:id}).title)+'</a><button type="button" data-act="funlink" data-v="'+esc(id)+'" aria-label="Unlink">×</button></span>'}).join("")+'</div>':'')+
+    '<div class="inline"><input type="text" id="flink" list="allres" placeholder="Start typing a name" autocomplete="off" style="flex:1;min-width:0;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px;min-height:46px"><button class="btn small" type="button" data-act="flink">Link</button></div></div>'+
     '<div class="btns"><button class="btn primary" type="submit">Add to tracker</button></div></form></section>';
 }
 
@@ -770,6 +1009,9 @@ function paintChrome(){
   $("banner").innerHTML=b;
 }
 function keepForm(){
+  var rfm=$("resform");
+  if(rfm){if(rfm.getAttribute("data-mode")==="edit")S.reditF=readRForm();else S.rform=readRForm()}
+  if($("pform"))S.pmetaF=readPForm();
   if(!$("addform")) return;
   S.form.what=$("what").value;S.form.owner=$("owner").value;S.form.type=$("type").value;S.form.deadline=$("deadline").value;S.form.start=$("start")?$("start").value:"";S.form.tags=$("tags").value;
 }
@@ -780,7 +1022,9 @@ function paintSheet(){
 function render(){
   paintChrome();paintSheet();
   var r=route();
-  var dlist='<datalist id="alltags">'+allTagNames().map(function(t){return '<option value="'+esc(t)+'">'}).join("")+'</datalist>';
+  var dlist='<datalist id="alltags">'+allTagNames().map(function(t){return '<option value="'+esc(t)+'">'}).join("")+'</datalist>'+
+    '<datalist id="allres">'+liveRes().slice().sort(byTitle).map(resOption).join("")+'</datalist>'+
+    '<datalist id="allents">'+S.entries.filter(function(e){return e.status!=="Dropped"}).slice().sort(byUrgency).map(function(e){return '<option value="'+esc(e.title+" ("+e.id+")")+'">'+esc(e.status+" · "+e.type)+'</option>'}).join("")+'</datalist>';
   // Keep the directory search box focused while the list re-renders around it.
   var q=document.activeElement&&document.activeElement.id==="dirq";
   $("view").innerHTML=dlist+(r==="all"?viewAll():r==="add"?viewAdd():r==="tags"?viewTags():r==="tag"?viewTag():r==="dir"?viewDir():r==="res"?viewRes():viewToday());
@@ -793,10 +1037,24 @@ document.addEventListener("click",function(ev){
   var a=el.getAttribute("data-act"),id=el.getAttribute("data-id"),v=el.getAttribute("data-v"),e=id?find(id):null;
   if(a==="connect"){sync(true);return}
   if(a==="checkupdate"){checkForUpdate(true);return}
-  if(a==="addtag"){S.form.tags=v;location.hash="#add";return}
+  if(a==="addtag"){S.addMode="entry";S.form=blankForm();S.form.tags=v;location.hash="#add";return}
   if(a==="done"&&e){S.extra=false;store(extraKey(),false);S.followUp={id:e.id,title:e.title,tags:e.tags.join(", "),owner:e.owner};setStatus(e,"Done");return}
-  if(a==="fu-yes"&&S.followUp){var fu=S.followUp;S.followUp=null;S.form={what:"",type:"Task",owner:fu.owner==="Band"?"Chris":(fu.owner||"Chris"),deadline:"",tags:fu.tags,status:"Open",followOf:fu.id,followTitle:fu.title};if(route()==="add")render();else location.hash="#add";setTimeout(function(){var w=$("what");if(w)w.focus()},50);return}
+  if(a==="fu-yes"&&S.followUp){var fu=S.followUp;S.followUp=null;S.addMode="entry";S.form={what:"",type:"Task",owner:fu.owner==="Band"?"Chris":(fu.owner||"Chris"),deadline:"",tags:fu.tags,status:"Open",links:[],followOf:fu.id,followTitle:fu.title};if(route()==="add")render();else location.hash="#add";setTimeout(function(){var w=$("what");if(w)w.focus()},50);return}
   if(a==="fu-no"){S.followUp=null;render();return}
+  if(a==="amode"){keepForm();S.addMode=v;render();return}
+  if(a==="addres"){S.addMode="resource";location.hash="#add";return}
+  if(a==="addrestag"){S.addMode="resource";S.rform=blankRForm();S.rform.tags=v;location.hash="#add";return}
+  if(a==="addlinked"){S.addMode="entry";S.form=blankForm();S.form.links=[v];var lr=findRes(v),lp=lr?resProjects(lr):[];if(lp.length===1)S.form.tags=lp[0];location.hash="#add";return}
+  if(a==="flink"){keepForm();var fr=resolveRes($("flink").value);if(!fr){toast("No single match in the directory. Pick from the list, or add it as a Resource first.",true);return}
+    if(S.form.links.indexOf(fr.id)<0)S.form.links.push(fr.id);render();var fi=$("flink");if(fi)fi.focus();return}
+  if(a==="funlink"){keepForm();S.form.links=S.form.links.filter(function(x){return x!==v});render();return}
+  if(a==="unlink"&&e){setLinks(e,e.links.filter(function(x){return x!==v}),"Unlinked "+((findRes(v)||{title:v}).title),el.getAttribute("data-scope"));return}
+  if(a==="rtag"){keepForm();var rfo=$("resform").getAttribute("data-mode")==="edit"?S.reditF:S.rform,rc=tagList(rfo.tags),ri2=rc.indexOf(v);if(ri2>=0)rc.splice(ri2,1);else rc.push(v);rfo.tags=rc.join(", ");render();return}
+  if(a==="redit"){S.editRes=v;S.reditF=null;render();window.scrollTo(0,0);return}
+  if(a==="redit-cancel"){ev.preventDefault();S.editRes=null;S.reditF=null;render();return}
+  if(a==="pedit"){S.editProj=v;S.pmetaF=null;render();window.scrollTo(0,0);return}
+  if(a==="pedit-cancel"){ev.preventDefault();S.editProj=null;S.pmetaF=null;render();return}
+  if(a==="allhist"){S.allHist=!S.allHist;render();return}
   if(a==="fu-clear"){keepForm();S.form.followOf=null;S.form.followTitle=null;render();return}
   else if(a==="status"&&e){setStatus(e,v)}
   else if(a==="drop"&&e){
@@ -835,7 +1093,75 @@ document.addEventListener("toggle",function(ev){
   var key=sc+":"+id;
   if(t.open)S.openRow=key;else if(S.openRow===key)S.openRow=null;
 },true);
+document.addEventListener("keydown",function(ev){
+  // Enter in the Add form's link picker links the resource instead of submitting the entry.
+  if(ev.key==="Enter"&&ev.target.id==="flink"){ev.preventDefault();var b=document.querySelector('[data-act="flink"]');if(b)b.click()}
+});
 document.addEventListener("submit",function(ev){
+  var cl=ev.target.classList;
+  if(cl&&cl.contains("linkadd")){
+    ev.preventDefault();
+    var le=find(ev.target.getAttribute("data-id")),lr=resolveRes(ev.target.querySelector("input").value);
+    if(!le)return;
+    if(!lr){toast("No single match in the directory. Pick from the list, or add it under Add > Resource.",true);return}
+    if(le.links.indexOf(lr.id)>=0){toast("Already linked");return}
+    setLinks(le,le.links.concat([lr.id]),"Linked "+lr.title,ev.target.getAttribute("data-scope"));
+    return;
+  }
+  if(cl&&cl.contains("entlink")){
+    ev.preventDefault();
+    var rid=ev.target.getAttribute("data-v"),ee=resolveEntry(ev.target.querySelector("input").value);
+    if(!ee){toast("No single matching entry. Pick from the list.",true);return}
+    if(ee.links.indexOf(rid)>=0){toast("Already linked");return}
+    setLinks(ee,ee.links.concat([rid]),"Linked "+ee.title.slice(0,40));
+    return;
+  }
+  if(cl&&cl.contains("restag")){
+    ev.preventDefault();
+    var pt=ev.target.getAttribute("data-v"),rr=resolveRes(ev.target.querySelector("input").value);
+    if(!rr){toast("No single match in the directory. Pick from the list, or use Add a resource.",true);return}
+    if(rr.tags.indexOf(pt)>=0){toast(rr.title+" is already in "+pt);return}
+    var nf=rformOf(rr);nf.tags=rr.tags.concat([pt]).join(", ");
+    act("Added "+rr.title+" to "+pt,{kind:"redit",id:rr.id,f:nf});
+    return;
+  }
+  if(ev.target.id==="resform"){
+    ev.preventDefault();
+    var mode=ev.target.getAttribute("data-mode"),rf=readRForm();
+    if(!rf.title.trim())return;
+    if(mode==="edit"){
+      var er=findRes(S.editRes);S.editRes=null;S.reditF=null;
+      if(er)act("Saved",{kind:"redit",id:er.id,f:rf});else render();
+      return;
+    }
+    var dupe=liveRes().filter(function(x){return x.title.toLowerCase()===rf.title.trim().toLowerCase()})[0];
+    if(dupe&&!S.dupeOk){S.dupeOk=true;S.rform=rf;toast(dupe.title+" is already in the directory ("+[dupe.type,place(dupe)].filter(Boolean).join(", ")+"). Press Add again to add a second one.",true);return}
+    S.dupeOk=false;S.rform=blankRForm();
+    var nid=addResource(rf);
+    location.hash="#res-"+encodeURIComponent(nid);
+    return;
+  }
+  if(ev.target.id==="pform"){
+    ev.preventDefault();
+    var pn=ev.target.getAttribute("data-v"),pf=readPForm();
+    if(pf.from&&pf.to&&pf.to<pf.from){toast("The To date is before the From date.",true);return}
+    S.editProj=null;S.pmetaF=null;
+    act("Project saved",{kind:"pmeta",name:pn,f:pf});
+    return;
+  }
+  if(ev.target.id==="projform"){
+    ev.preventDefault();
+    var pname=normTag($("newproj").value);
+    if(!pname)return;
+    if(allTagNames().indexOf(pname)>=0){
+      if(isProject(pname)){location.hash="#tag-"+encodeURIComponent(pname);toast("That project already exists");return}
+      toast(pname+" is already a tag. Pick another name, or ask Claude to turn the tag into a project.",true);return;
+    }
+    act("Project added",{kind:"tag",name:pname,desc:"",tkind:"project",at:Date.now()});
+    S.editProj=pname;S.pmetaF=null;
+    location.hash="#tag-"+encodeURIComponent(pname);
+    return;
+  }
   if(ev.target.classList&&ev.target.classList.contains("tagadd")){
     ev.preventDefault();
     var te=find(ev.target.getAttribute("data-id")),nt=normTag(ev.target.querySelector("input").value);
@@ -876,12 +1202,17 @@ document.addEventListener("submit",function(ev){
   ev.preventDefault();keepForm();
   if(!S.form.what.trim()) return;
   var f=JSON.parse(JSON.stringify(S.form));
-  S.form={what:"",type:"Task",owner:"Chris",deadline:"",tags:"",status:"Open"};
+  S.form=blankForm();
   addEntry(f);
   if(route()!=="today")location.hash="#today";else render();
 });
 $("refresh").addEventListener("click",function(){sync(true)});
-window.addEventListener("hashchange",function(){keepForm();render();window.scrollTo(0,0)});
+window.addEventListener("hashchange",function(){
+  keepForm();
+  // Leaving a resource or project page drops its edit form.
+  if(S.editRes&&!(route()==="res"&&findRes(currentRes())&&findRes(currentRes()).id===S.editRes)){S.editRes=null;S.reditF=null}
+  if(S.editProj&&!(route()==="tag"&&currentTag()===S.editProj)){S.editProj=null;S.pmetaF=null}
+  render();window.scrollTo(0,0)});
 
 /* ---------- boot ---------- */
 handleOAuthReturn();
@@ -893,7 +1224,7 @@ sync(false);
 window.addEventListener("online",function(){sync(false)});
 document.addEventListener("visibilitychange",function(){if(!document.hidden&&hasToken()&&(!S.loadedAt||Date.now()-S.loadedAt.getTime()>120000))sync(false)});
 /* ---------- app updates ---------- */
-var APP_VERSION="2026-11-23a";
+var APP_VERSION="2026-11-25a";
 var SWREG=null;
 function paintVersion(msg){
   var v=$("ver");if(!v)return;
